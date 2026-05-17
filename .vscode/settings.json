@@ -1,0 +1,26 @@
+{
+  "[rust]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+  },
+  "rust-analyzer.cargo.extraEnv": {
+    "__BUILD_WITH_SIGN": "yes",
+  },
+  "rust-analyzer.runnables.extraEnv": {
+    "RUST_BACKTRACE": "1",
+  },
+  "python.analysis.typeCheckingMode": "basic",
+  "rust-analyzer.checkOnSave": true,
+  "emeraldwalk.runonsave": {
+    "commands": [
+      {
+        "match": "\\.toml$",
+        "cmd": "taplo format"
+      }
+    ]
+  },
+  "lldb.displayFormat": "auto",
+  "lldb.showDisassembly": "auto",
+  "lldb.dereferencePointers": true,
+  "lldb.consoleMode": "commands"
+}
