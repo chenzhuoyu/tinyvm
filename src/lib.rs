@@ -9,6 +9,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+use bytes::{Buf, BufMut, buf::UninitSlice};
 use ffi::{HV_MEMORY_EXEC, HV_MEMORY_READ, HV_MEMORY_WRITE};
 use libc::{MAP_ANON, MAP_FAILED, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE, c_void};
 #[cfg(target_arch = "x86_64")]
@@ -54,8 +55,8 @@ bitflags::bitflags! {
 }
 
 impl Protection {
+    pub const RX: Self = Self::READ.union(Self::EXEC);
     pub const RW: Self = Self::READ.union(Self::WRITE);
-    pub const WX: Self = Self::WRITE.union(Self::EXEC);
 }
 
 impl Protection {
@@ -91,36 +92,45 @@ impl Debug for Protection {
     }
 }
 
+pub trait Addressable {
+    fn addr(&self) -> u64;
+    fn size(&self) -> usize;
+}
+
 pub struct Memory {
     pub(crate) base: *mut c_void,
     pub(crate) size: usize,
-    pub(crate) prot: Protection,
 }
 
 impl Memory {
-    pub fn mmap(size: usize, prot: Protection) -> IoResult<Self> {
+    pub fn mmap(size: usize) -> IoResult<Self> {
         let base = unsafe {
             libc::mmap(
                 std::ptr::null_mut(),
                 size,
-                prot.as_mprotect(),
+                PROT_READ | PROT_WRITE,
                 MAP_ANON | MAP_PRIVATE,
                 -1,
                 0,
             )
         };
         if std::ptr::eq(base, MAP_FAILED) {
-            tracing::error!("Cannot map memory with size {size} as {prot:?}");
+            tracing::error!("Cannot map memory with size {size}");
             return Err(IoError::last_os_error());
         }
-        Ok(Self { base, size, prot })
+        Ok(Self { base, size })
     }
 }
 
 impl Memory {
-    #[inline]
-    pub fn write(&mut self, offs: usize, data: &[u8]) {
-        self[offs..offs + data.len()].copy_from_slice(data);
+    #[inline(always)]
+    pub fn view(&self, pos: usize) -> MemoryView<'_> {
+        MemoryView { pos, mem: self }
+    }
+
+    #[inline(always)]
+    pub fn view_mut(&mut self, pos: usize) -> MemoryViewMut<'_> {
+        MemoryViewMut { pos, mem: self }
     }
 }
 
@@ -140,7 +150,7 @@ impl Drop for Memory {
 impl Debug for Memory {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         let end = unsafe { self.base.add(self.size) };
-        write!(f, "memory({:p}-{:p}:{:?})", self.base, end, self.prot)
+        write!(f, "memory({:p}-{:p})", self.base, end)
     }
 }
 
@@ -157,5 +167,89 @@ impl DerefMut for Memory {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut [u8] {
         unsafe { std::slice::from_raw_parts_mut(self.base as *mut u8, self.size) }
+    }
+}
+
+impl Addressable for Memory {
+    #[inline(always)]
+    fn addr(&self) -> u64 {
+        self.base.addr() as u64
+    }
+
+    #[inline(always)]
+    fn size(&self) -> usize {
+        self.size
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MemoryView<'m> {
+    pos: usize,
+    mem: &'m Memory,
+}
+
+impl Buf for MemoryView<'_> {
+    #[inline(always)]
+    fn remaining(&self) -> usize {
+        self.mem.len() - self.pos
+    }
+
+    #[inline(always)]
+    fn chunk(&self) -> &[u8] {
+        &self.mem[self.pos..]
+    }
+
+    #[inline(always)]
+    fn advance(&mut self, cnt: usize) {
+        self.pos += cnt;
+        assert!(self.pos <= self.mem.len());
+    }
+}
+
+impl Addressable for MemoryView<'_> {
+    #[inline(always)]
+    fn addr(&self) -> u64 {
+        self.mem.addr() + (self.pos as u64)
+    }
+
+    #[inline(always)]
+    fn size(&self) -> usize {
+        self.mem.size() - self.pos
+    }
+}
+
+#[derive(Debug)]
+pub struct MemoryViewMut<'m> {
+    pos: usize,
+    mem: &'m mut Memory,
+}
+
+unsafe impl BufMut for MemoryViewMut<'_> {
+    #[inline(always)]
+    fn remaining_mut(&self) -> usize {
+        self.mem.len() - self.pos
+    }
+
+    #[inline(always)]
+    unsafe fn advance_mut(&mut self, cnt: usize) {
+        self.pos += cnt;
+        assert!(self.pos <= self.mem.len());
+    }
+
+    #[inline(always)]
+    fn chunk_mut(&mut self) -> &mut UninitSlice {
+        UninitSlice::new(&mut self.mem[self.pos..])
+    }
+}
+
+impl Addressable for MemoryViewMut<'_> {
+    #[inline(always)]
+    fn addr(&self) -> u64 {
+        self.mem.addr() + (self.pos as u64)
+    }
+
+    #[inline(always)]
+    fn size(&self) -> usize {
+        self.mem.size() - self.pos
     }
 }

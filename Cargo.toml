@@ -5,6 +5,7 @@ version = "0.1.0"
 
 [dependencies]
 bitflags           = "2.11"
+bytes              = "1.11"
 libc               = "0.2"
 paste              = "1.0"
 tracing            = "0.1"

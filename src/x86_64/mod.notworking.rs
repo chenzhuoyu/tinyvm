@@ -11,7 +11,7 @@ use bytes::BufMut;
 use consts::*;
 use ffi::*;
 
-use crate::{Memory, Protection, hv_call};
+use crate::{Memory, MemoryViewMut, Protection, hv_call, io_error};
 
 macro_rules! declare_friendly_enum {
     ($(pub enum $name:ident : $real_ty:ty [ $repr_ty:ty ] => $prefix:ident :: { $($item:ident),* $(,)? }),* $(,)?) => {
@@ -19,7 +19,7 @@ macro_rules! declare_friendly_enum {
             $(
                 #[repr($repr_ty)]
                 #[allow(non_camel_case_types)]
-                #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+                #[derive(Debug, Clone, Copy)]
                 pub enum $name {
                     $(
                         $item = [< $prefix $item >],
@@ -42,7 +42,7 @@ macro_rules! declare_friendly_enum {
                             $(
                                 [< $prefix $item >] => Ok(Self::$item),
                             )*
-                            reason => Err(crate::io_error!(
+                            reason => Err(io_error!(
                                 Other,
                                 "unknown {}: {:#x}",
                                 stringify!($name),
@@ -312,15 +312,15 @@ declare_friendly_enum! {
         MAX,
     },
     pub enum ExitReason : u16 [ u16 ] => VMX_REASON_ :: {
-        EXCEPTION,
+        EXC_NMI,
         IRQ,
         TRIPLE_FAULT,
         INIT,
         SIPI,
         IO_SMI,
         OTHER_SMI,
-        IRQ_WINDOW,
-        NMI_WINDOW,
+        IRQ_WND,
+        VIRTUAL_NMI_WND,
         TASK,
         CPUID,
         GETSEC,
@@ -459,14 +459,6 @@ impl Display for SegAR {
     }
 }
 
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum MsrAccess {
-    Read = HV_MSR_READ,
-    Write = HV_MSR_WRITE,
-    ReadWrite = HV_MSR_READ | HV_MSR_WRITE,
-}
-
 pub struct Cpu {
     run: AtomicBool,
     cpu: hv_vcpuid_t,
@@ -476,64 +468,44 @@ impl Cpu {
     fn new() -> IoResult<Self> {
         let run = AtomicBool::new(true);
         let mut cpu = 0u32;
-        hv_call!(hv_vcpu_create(&raw mut cpu, HV_VCPU_DEFAULT))?;
+        hv_call!(hv_vcpu_create(&raw mut cpu, HV_VCPU_ACCEL_RDPMC))?;
         Ok(Self { run, cpu })
     }
 }
 
 impl Cpu {
-    #[inline]
-    pub fn read_msr(&self, msr: Msr) -> IoResult<u64> {
-        let mut ret = 0u64;
-        hv_call!(hv_vcpu_read_msr(self.cpu, msr.msr(), &raw mut ret))?;
-        Ok(ret)
-    }
-
-    #[inline]
     pub fn read_reg(&self, reg: Reg) -> IoResult<u64> {
         let mut ret = 0u64;
         hv_call!(hv_vcpu_read_register(self.cpu, reg.reg(), &raw mut ret))?;
         Ok(ret)
     }
 
-    #[inline]
+    pub fn write_reg(&self, reg: Reg, value: u64) -> IoResult<()> {
+        hv_call!(hv_vcpu_write_register(self.cpu, reg.reg(), value))
+    }
+}
+
+impl Cpu {
+    pub fn read_msr(&self, msr: Msr) -> IoResult<u64> {
+        let mut ret = 0u64;
+        hv_call!(hv_vcpu_read_msr(self.cpu, msr.msr(), &raw mut ret))?;
+        Ok(ret)
+    }
+
+    pub fn write_msr(&self, msr: Msr, value: u64) -> IoResult<()> {
+        hv_call!(hv_vcpu_write_msr(self.cpu, msr.msr(), value))
+    }
+}
+
+impl Cpu {
     pub fn read_vmcs(&self, vmcs: Vmcs) -> IoResult<u64> {
         let mut ret = 0u64;
         hv_call!(hv_vmx_vcpu_read_vmcs(self.cpu, vmcs.vmcs(), &raw mut ret))?;
         Ok(ret)
     }
 
-    #[inline]
-    pub fn write_msr(&self, msr: Msr, value: u64) -> IoResult<()> {
-        hv_call!(hv_vcpu_write_msr(self.cpu, msr.msr(), value))
-    }
-
-    #[inline]
-    pub fn write_reg(&self, reg: Reg, value: u64) -> IoResult<()> {
-        hv_call!(hv_vcpu_write_register(self.cpu, reg.reg(), value))
-    }
-
-    #[inline]
     pub fn write_vmcs(&self, vmcs: Vmcs, value: u64) -> IoResult<()> {
         hv_call!(hv_vmx_vcpu_write_vmcs(self.cpu, vmcs.vmcs(), value))
-    }
-
-    #[inline]
-    pub fn flush_tlb(&self) -> IoResult<()> {
-        hv_call!(hv_vcpu_invalidate_tlb(self.cpu))
-    }
-
-    pub fn set_msr_access(&self, msr: Msr, flags: MsrAccess) -> IoResult<()> {
-        hv_call!(hv_vcpu_set_msr_access(self.cpu, msr.msr(), flags as u32))
-    }
-
-    #[inline]
-    pub fn enable_native_msr(&self, msr: Msr, enable: bool) -> IoResult<()> {
-        hv_call!(hv_vcpu_enable_native_msr(self.cpu, msr.msr(), enable))
-    }
-
-    pub fn enable_managed_msr(&self, msr: Msr, enabled: bool) -> IoResult<()> {
-        hv_call!(hv_vcpu_enable_managed_msr(self.cpu, msr.msr(), enabled))
     }
 }
 
@@ -548,12 +520,6 @@ impl Cpu {
     #[inline(always)]
     pub fn run(&self) -> Executor<'_> {
         Executor(self)
-    }
-
-    pub fn next(&self) -> IoResult<()> {
-        let len = self.read_vmcs(Vmcs::RO_VMEXIT_INSTR_LEN)?;
-        self.write_reg(Reg::RIP, self.read_reg(Reg::RIP)? + len)?;
-        Ok(())
     }
 }
 
@@ -699,12 +665,9 @@ impl Vm {
 }
 
 impl Vm {
-    pub fn map(&self, base: u64, mem: &Memory, prot: Protection) -> IoResult<()> {
-        hv_call!(hv_vm_map(mem.base, base, mem.size, prot.bits()))
-    }
-
-    pub fn protect(&self, base: u64, size: usize, prot: Protection) -> IoResult<()> {
-        hv_call!(hv_vm_protect(base, size, prot.bits()))
+    pub fn map(&mut self, base: u64, mem: &Memory) -> IoResult<()> {
+        hv_call!(hv_vm_map(mem.base, base, mem.size, mem.prot.bits()))?;
+        Ok(())
     }
 }
 
@@ -724,193 +687,208 @@ impl Drop for Vm {
     }
 }
 
-const ENTRY_POINT: usize = 0x1000;
-const BOOTMEM_SIZE: usize = 65536;
+const PAGE_P: u64 = 1 << 0;
+const PAGE_RW: u64 = 1 << 1;
+const PAGE_PS: u64 = 1 << 7;
+
+const CR0_INIT: u64 = 0x80010033; // PG WP NE ET MP PE
+const CR4_INIT: u64 = 0x00000000; // PAE
+const EFER_INIT: u64 = 0x00000000; // LME
+const RFLAGS_INIT: u64 = 0x00000002;
+
+const CS_AR: u64 = 0xc09b; // G=1 DB=1 L=0 P=1 DPL=00 S=1 E=1 DC=0 RW=1 A=1
+const DS_AR: u64 = 0xc093; // G=1 DB=1 L=0 P=1 DPL=00 S=1 E=0 DC=0 RW=1 A=1
+const TSS_AR: u64 = 0x0089; // G=0 DB=0 L=0 P=1 DPL=00 S=0 Type=9 (TSS)
+const UNUSED_AR: u64 = 0x10000; // Unused
+
+const CS_SEL: u64 = 0x08;
+const DS_SEL: u64 = 0x10;
+const TSS_SEL: u64 = 0x18;
+
+const GDT_NULL: u64 = 0;
+const GDT_CODE: u64 = CS_AR << 40;
+const GDT_DATA: u64 = DS_AR << 40;
+const GDT_TSSL: u64 = mksgdt(TSS_BASE, TSS_SIZE - 1, TSS_AR);
+const GDT_TSSH: u64 = (TSS_BASE as u64) >> 32;
+
+const TSS_BASE: usize = 0x0f00;
+const TSS_SIZE: usize = 0x0068;
+const GDT_BASE: usize = 0x0fd0;
+const GDT_SIZE: usize = 0x0028;
+
+const PAGE_SIZE: usize = 0x1000;
+const PML4_BASE: usize = 0x1000;
+const PDPT_BASE: usize = 0x2000;
+const SMEM_SIZE: usize = (PAGE_SIZE * 2 + GDT_SIZE).div_ceil(PAGE_SIZE) * PAGE_SIZE;
+
+const IMAGE_BASE: usize = 0x0010_0000;
+const IMAGE_SIZE: usize = 0x0010_0000;
+const STACK_BASE: usize = 0x0001_0000;
+const STACK_SIZE: usize = 0x000f_0000;
+const ENTRY_ADDR: usize = IMAGE_BASE;
+
+#[inline(always)]
+const fn mksgdt(base: usize, limit: usize, access: u64) -> u64 {
+    ((((base as u64) >> 24) & 0xff) << 56)
+        | ((((limit as u64) >> 16) & 0x0f) << 48)
+        | (access << 40)
+        | (((base as u64) & 0xffffff) << 16)
+        | ((limit as u64) & 0xffff)
+}
 
 #[inline(always)]
 const fn cap2ctrl(cap: u64, ctrl: u64) -> u64 {
     (ctrl | (cap & 0xffffffff)) & (cap >> 32)
 }
 
+#[inline(always)]
+fn setup_gdt(mut mem: MemoryViewMut<'_>) {
+    mem.put_u64_le(GDT_NULL);
+    mem.put_u64_le(GDT_CODE);
+    mem.put_u64_le(GDT_DATA);
+    mem.put_u64_le(GDT_TSSL);
+    mem.put_u64_le(GDT_TSSH);
+}
+
+#[inline(always)]
+fn setup_pml4(mut mem: MemoryViewMut<'_>) {
+    mem.put_u64_le((PDPT_BASE as u64) | PAGE_RW | PAGE_P);
+    mem.put_bytes(0, PAGE_SIZE - 8);
+}
+
+#[inline(always)]
+fn setup_pdpt(mut mem: MemoryViewMut<'_>) {
+    mem.put_u64_le(PAGE_PS | PAGE_RW | PAGE_P);
+    mem.put_bytes(0, PAGE_SIZE - 8);
+}
+
 pub fn vm_main() -> IoResult<()> {
-    let vm = Vm::new()?;
+    let mut vm = Vm::new()?;
+    let mut cfg = Memory::mmap(SMEM_SIZE, Protection::RW)?;
+    let mut code = Memory::mmap(IMAGE_SIZE, Protection::RW)?;
+
+    // TODO: load code
+    code[0] = 0xf4; // HLT
+    code.protect(Protection::RX)?;
+
+    /* setup GDT & initial page table with 1G page */
+    setup_gdt(cfg.view_mut(GDT_BASE));
+    setup_pml4(cfg.view_mut(PML4_BASE));
+    setup_pdpt(cfg.view_mut(PDPT_BASE));
+
+    /* create virtual CPU */
     let cpu = Cpu::new()?;
+    let stack = Memory::mmap(STACK_SIZE, Protection::RW)?;
 
-    /* Pin-based Control */
-    let pin_based = cap2ctrl(
-        vm.caps(Capability::PINBASED)?,
-        PIN_BASED_INTR | PIN_BASED_NMI | PIN_BASED_VIRTUAL_NMI,
-    );
+    /* map memory regions */
+    vm.map(0, &cfg)?;
+    vm.map(IMAGE_BASE as u64, &code)?;
+    vm.map(STACK_BASE as u64, &stack)?;
 
-    /* CPU-based Control */
-    let cpu_based = cap2ctrl(
-        vm.caps(Capability::PROCBASED)?,
-        CPU_BASED_HLT
-            | CPU_BASED_MWAIT
-            | CPU_BASED_TSC_OFFSET
-            | CPU_BASED_TPR_SHADOW
-            | CPU_BASED_SECONDARY_CTLS,
-    );
+    /* setup entry point */
+    cpu.write_vmcs(Vmcs::GUEST_RIP, ENTRY_ADDR as u64)?;
+    cpu.write_vmcs(Vmcs::GUEST_RSP, (STACK_BASE + STACK_SIZE - 16) as u64)?;
+    cpu.write_vmcs(Vmcs::GUEST_RFLAGS, RFLAGS_INIT)?;
 
-    /* Secondary CPU-based Control */
-    let cpu_based_2 = cap2ctrl(
-        vm.caps(Capability::PROCBASED2)?,
-        CPU_BASED2_VIRTUAL_APIC | CPU_BASED2_RDTSCP,
-    );
-
-    /* VM Entry Control */
-    let entry = vm.caps(Capability::ENTRY)?;
-    let entry = cap2ctrl(entry, 0);
-
-    /* setup VM control registers */
-    cpu.write_vmcs(Vmcs::CTRL_PIN_BASED, pin_based)?;
-    cpu.write_vmcs(Vmcs::CTRL_CPU_BASED, cpu_based)?;
-    cpu.write_vmcs(Vmcs::CTRL_CPU_BASED2, cpu_based_2)?;
-    cpu.write_vmcs(Vmcs::CTRL_VMENTRY_CONTROLS, entry)?;
-    cpu.write_vmcs(Vmcs::CTRL_EXC_BITMAP, 0)?;
-    cpu.write_vmcs(Vmcs::CTRL_TPR_THRESHOLD, 0)?;
-
-    /* enable native MSRs */
-    cpu.enable_native_msr(Msr::IA32_STAR, true)?;
-    cpu.enable_native_msr(Msr::IA32_LSTAR, true)?;
-    cpu.enable_native_msr(Msr::IA32_CSTAR, true)?;
-    cpu.enable_native_msr(Msr::IA32_FMASK, true)?;
-    cpu.enable_native_msr(Msr::IA32_FS_BASE, true)?;
-    cpu.enable_native_msr(Msr::IA32_GS_BASE, true)?;
-    cpu.enable_native_msr(Msr::IA32_KERNEL_GS_BASE, true)?;
-    cpu.enable_native_msr(Msr::IA32_TSC_AUX, true)?;
-    cpu.enable_native_msr(Msr::IA32_TSC, true)?;
-    cpu.enable_native_msr(Msr::IA32_SYSENTER_CS, true)?;
-    cpu.enable_native_msr(Msr::IA32_SYSENTER_EIP, true)?;
-    cpu.enable_native_msr(Msr::IA32_SYSENTER_ESP, true)?;
-
-    /* setup guest control registers */
-    cpu.write_vmcs(Vmcs::GUEST_CR0, 0x20)?;
-    cpu.write_vmcs(Vmcs::GUEST_CR3, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_CR4, 0x2000)?;
+    /* setup control registers */
+    cpu.write_vmcs(Vmcs::GUEST_CR0, CR0_INIT)?;
+    cpu.write_vmcs(Vmcs::GUEST_CR3, PML4_BASE as u64)?;
+    cpu.write_vmcs(Vmcs::GUEST_CR4, CR4_INIT)?;
+    cpu.write_vmcs(Vmcs::GUEST_IA32_EFER, EFER_INIT)?;
+    cpu.write_vmcs(Vmcs::GUEST_DR7, 0x400)?;
+    cpu.write_vmcs(Vmcs::GUEST_IA32_DEBUGCTL, 0)?;
 
     /* setup code segment */
-    cpu.write_vmcs(Vmcs::GUEST_CS, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_CS_AR, 0x9b)?;
+    cpu.write_vmcs(Vmcs::GUEST_CS, CS_SEL)?;
+    cpu.write_vmcs(Vmcs::GUEST_CS_AR, CS_AR)?;
     cpu.write_vmcs(Vmcs::GUEST_CS_BASE, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_CS_LIMIT, 0xffff)?;
+    cpu.write_vmcs(Vmcs::GUEST_CS_LIMIT, 0xffffffff)?;
 
     /* setup data segments */
-    cpu.write_vmcs(Vmcs::GUEST_SS, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_DS, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_ES, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_SS_AR, 0x93)?;
-    cpu.write_vmcs(Vmcs::GUEST_DS_AR, 0x93)?;
-    cpu.write_vmcs(Vmcs::GUEST_ES_AR, 0x93)?;
+    cpu.write_vmcs(Vmcs::GUEST_SS, DS_SEL)?;
+    cpu.write_vmcs(Vmcs::GUEST_DS, DS_SEL)?;
+    cpu.write_vmcs(Vmcs::GUEST_ES, DS_SEL)?;
+    cpu.write_vmcs(Vmcs::GUEST_SS_AR, DS_AR)?;
+    cpu.write_vmcs(Vmcs::GUEST_DS_AR, DS_AR)?;
+    cpu.write_vmcs(Vmcs::GUEST_ES_AR, DS_AR)?;
     cpu.write_vmcs(Vmcs::GUEST_SS_BASE, 0)?;
     cpu.write_vmcs(Vmcs::GUEST_DS_BASE, 0)?;
     cpu.write_vmcs(Vmcs::GUEST_ES_BASE, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_SS_LIMIT, 0xffff)?;
-    cpu.write_vmcs(Vmcs::GUEST_DS_LIMIT, 0xffff)?;
-    cpu.write_vmcs(Vmcs::GUEST_ES_LIMIT, 0xffff)?;
+    cpu.write_vmcs(Vmcs::GUEST_SS_LIMIT, 0xffffffff)?;
+    cpu.write_vmcs(Vmcs::GUEST_DS_LIMIT, 0xffffffff)?;
+    cpu.write_vmcs(Vmcs::GUEST_ES_LIMIT, 0xffffffff)?;
 
     /* FS & GS */
     cpu.write_vmcs(Vmcs::GUEST_FS, 0)?;
     cpu.write_vmcs(Vmcs::GUEST_GS, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_FS_AR, 0x10000)?;
-    cpu.write_vmcs(Vmcs::GUEST_GS_AR, 0x10000)?;
+    cpu.write_vmcs(Vmcs::GUEST_FS_AR, UNUSED_AR)?;
+    cpu.write_vmcs(Vmcs::GUEST_GS_AR, UNUSED_AR)?;
     cpu.write_vmcs(Vmcs::GUEST_FS_BASE, 0)?;
     cpu.write_vmcs(Vmcs::GUEST_GS_BASE, 0)?;
     cpu.write_vmcs(Vmcs::GUEST_FS_LIMIT, 0)?;
     cpu.write_vmcs(Vmcs::GUEST_GS_LIMIT, 0)?;
 
     /* GDTR & IDTR */
-    cpu.write_vmcs(Vmcs::GUEST_GDTR_BASE, 0)?;
+    cpu.write_vmcs(Vmcs::GUEST_GDTR_BASE, GDT_BASE as u64)?;
     cpu.write_vmcs(Vmcs::GUEST_IDTR_BASE, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_GDTR_LIMIT, 0)?;
+    cpu.write_vmcs(Vmcs::GUEST_GDTR_LIMIT, (GDT_SIZE - 1) as u64)?;
     cpu.write_vmcs(Vmcs::GUEST_IDTR_LIMIT, 0)?;
 
     /* LDTR */
     cpu.write_vmcs(Vmcs::GUEST_LDTR, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_LDTR_AR, 0x10000)?;
+    cpu.write_vmcs(Vmcs::GUEST_LDTR_AR, UNUSED_AR)?;
     cpu.write_vmcs(Vmcs::GUEST_LDTR_BASE, 0)?;
     cpu.write_vmcs(Vmcs::GUEST_LDTR_LIMIT, 0)?;
 
     /* TR (TSS) */
-    cpu.write_vmcs(Vmcs::GUEST_TR, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_TR_AR, 0x83)?;
-    cpu.write_vmcs(Vmcs::GUEST_TR_BASE, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_TR_LIMIT, 0)?;
+    cpu.write_vmcs(Vmcs::GUEST_TR, TSS_SEL)?;
+    cpu.write_vmcs(Vmcs::GUEST_TR_AR, TSS_AR)?;
+    cpu.write_vmcs(Vmcs::GUEST_TR_BASE, TSS_BASE as u64)?;
+    cpu.write_vmcs(Vmcs::GUEST_TR_LIMIT, (TSS_SIZE - 1) as u64)?;
 
-    let mut boot = Memory::mmap(BOOTMEM_SIZE)?;
+    /* Pin-base Control */
+    cpu.write_vmcs(
+        Vmcs::CTRL_PIN_BASED,
+        cap2ctrl(vm.caps(Capability::PINBASED)?, 0),
+    )?;
 
-    let code = std::fs::read("/Users/chenzhuoyu/Sources/tests/test_hvf/init.bin")?;
-    boot.view_mut(ENTRY_POINT).put_slice(&code);
-    vm.map(0, &boot, Protection::all())?;
+    /* CPU-base Control */
+    cpu.write_vmcs(
+        Vmcs::CTRL_CPU_BASED,
+        cap2ctrl(vm.caps(Capability::PROCBASED)?, 0),
+    )?;
 
-    cpu.write_reg(Reg::RIP, ENTRY_POINT as u64)?;
-    cpu.write_reg(Reg::RFLAGS, 0x00000002)?;
+    /* CPU-base Control 2 */
+    cpu.write_vmcs(
+        Vmcs::CTRL_CPU_BASED2,
+        cap2ctrl(vm.caps(Capability::PROCBASED2)?, 0),
+    )?;
+
+    /* VM Entry Contorl */
+    cpu.write_vmcs(
+        Vmcs::CTRL_VMENTRY_CONTROLS,
+        cap2ctrl(vm.caps(Capability::ENTRY)?, VMENTRY_LOAD_EFER),
+    )?;
+
+    /* initialize register state */
+    // cpu.write_reg(Reg::RSI, 0)?;
+    // cpu.write_reg(Reg::XCR0, 0x07)?;
 
     for event in cpu.run() {
+        dbg!(&cpu);
         eprintln!("event = {event:?}");
         let Ok(event) = event else {
-            dbg!(&cpu);
             break;
         };
         if event.is_error() {
-            dbg!(&cpu);
             eprintln!("VM Enter error");
             break;
         }
-        match event.reason {
-            ExitReason::RDMSR => match Msr::try_from(cpu.read_reg(Reg::RCX)? as u32) {
-                Ok(Msr::IA32_EFER) => {
-                    let efer = cpu.read_vmcs(Vmcs::GUEST_IA32_EFER)?;
-                    eprintln!("RDMSR EFER => {efer:016x}");
-                    cpu.write_reg(Reg::RDX, efer >> 32)?;
-                    cpu.write_reg(Reg::RAX, efer & 0xffff_ffff)?;
-                    cpu.next()?;
-                }
-                Ok(msr) => {
-                    dbg!(&cpu);
-                    unimplemented!("RDMSR: {msr:?}");
-                }
-                Err(err) => {
-                    dbg!(&cpu);
-                    panic!("RDMSR: {err}");
-                }
-            },
-            ExitReason::WRMSR => match Msr::try_from(cpu.read_reg(Reg::RCX)? as u32) {
-                Ok(Msr::IA32_EFER) => {
-                    let efer = (cpu.read_reg(Reg::RDX)? << 32) | cpu.read_reg(Reg::RAX)?;
-                    eprintln!("WRMSR EFER <= {efer:016x}");
-                    cpu.write_vmcs(Vmcs::GUEST_IA32_EFER, efer)?;
-                    cpu.next()?;
-                }
-                Ok(msr) => {
-                    dbg!(&cpu);
-                    unimplemented!("WRMSR: {msr:?}");
-                }
-                Err(err) => {
-                    dbg!(&cpu);
-                    panic!("WRMSR: {err}");
-                }
-            },
-            ExitReason::EPT_VIOLATION => {
-                continue;
-            }
-            reason => {
-                dbg!(&cpu);
-                if reason == ExitReason::EXCEPTION {
-                    let irq_info = cpu.read_vmcs(Vmcs::RO_VMEXIT_IRQ_INFO)?;
-                    eprintln!("irq_info = {irq_info:016x}");
-                    let vector = irq_info & 0xff;
-                    let ty = (irq_info >> 8) & 0x7;
-                    let valid = (irq_info >> 31) & 0x1;
-                    eprintln!("  vector={vector} ty={ty} valid={valid}");
-                }
-                std::io::stderr()
-                    .write_all(b"* Press ENTER to continue ...")
-                    .unwrap();
-                std::io::stderr().flush().unwrap();
-                std::io::stdin().read_line(&mut String::new()).unwrap();
-            }
-        }
+        std::io::stderr()
+            .write_all(b"* Press ENTER to continue ...")
+            .unwrap();
+        std::io::stderr().flush().unwrap();
+        std::io::stdin().read_line(&mut String::new()).unwrap();
     }
 
     eprintln!("err = {}", IoError::last_os_error());
