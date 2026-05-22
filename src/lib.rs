@@ -11,23 +11,23 @@ use std::{
 
 use bytes::{Buf, BufMut, buf::UninitSlice};
 use ffi::{HV_MEMORY_EXEC, HV_MEMORY_READ, HV_MEMORY_WRITE};
-use libc::{MAP_ANON, MAP_FAILED, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE, c_void};
+use libc::{MAP_ANON, MAP_FAILED, MAP_PRIVATE, PROT_READ, PROT_WRITE, c_void};
 #[cfg(target_arch = "x86_64")]
 pub use x86_64::{Cpu, Vm, ffi};
 
 #[macro_export]
 macro_rules! hv_call {
-    ($invoke:expr) => {{
+    ($name:ident ( $($arg:expr),* $(,)? )) => {{
         #[allow(clippy::macro_metavars_in_unsafe)]
-        match unsafe { $invoke } {
-            $crate::ffi::HV_SUCCESS => Ok(()),
-            $crate::ffi::HV_ERROR => Err($crate::io_error!(Other, "hypervisor error")),
-            $crate::ffi::HV_BUSY => Err($crate::io_error!(ResourceBusy, "hypervisor is busy")),
-            $crate::ffi::HV_BAD_ARGUMENT => Err($crate::io_error!(InvalidInput, "bad arguments")),
-            $crate::ffi::HV_NO_RESOURCES => Err($crate::io_error!(Other, "insufficient resources")),
-            $crate::ffi::HV_NO_DEVICE => Err($crate::io_error!(Other, "no devices")),
-            $crate::ffi::HV_UNSUPPORTED => Err($crate::io_error!(Unsupported, "unsupported")),
-            err => Err($crate::io_error!(Other, "unknown error: {err}")),
+        match unsafe { $name($($arg),*) } {
+            $crate::ffi::HV_SUCCESS => {}
+            $crate::ffi::HV_ERROR => panic!(concat!(stringify!($name), ": generic hypervisor error")),
+            $crate::ffi::HV_BUSY => panic!(concat!(stringify!($name), ": hypervisor is busy")),
+            $crate::ffi::HV_BAD_ARGUMENT => panic!(concat!(stringify!($name), ": bad arguments")),
+            $crate::ffi::HV_NO_RESOURCES => panic!(concat!(stringify!($name), ": insufficient resources")),
+            $crate::ffi::HV_NO_DEVICE => panic!(concat!(stringify!($name), ": no devices")),
+            $crate::ffi::HV_UNSUPPORTED => panic!(concat!(stringify!($name), ": unsupported operation")),
+            err => panic!("{}: unknown error: {}", stringify!($name), err),
         }
     }};
 }
@@ -57,21 +57,6 @@ bitflags::bitflags! {
 impl Protection {
     pub const RX: Self = Self::READ.union(Self::EXEC);
     pub const RW: Self = Self::READ.union(Self::WRITE);
-}
-
-impl Protection {
-    fn as_mprotect(self) -> i32 {
-        macro_rules! select_flags {
-            ($name:ident) => {
-                if self.contains(Self::$name) {
-                    paste::paste! { [< PROT_ $name >]}
-                } else {
-                    0
-                }
-            };
-        }
-        select_flags!(READ) | select_flags!(WRITE) | select_flags!(EXEC)
-    }
 }
 
 impl Debug for Protection {

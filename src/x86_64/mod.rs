@@ -34,20 +34,11 @@ macro_rules! declare_friendly_enum {
                     }
                 }
 
-                impl TryFrom<$repr_ty> for $name {
-                    type Error = std::io::Error;
-
-                    fn try_from(reason: $repr_ty) -> std::io::Result<Self> {
-                        match reason {
-                            $(
-                                [< $prefix $item >] => Ok(Self::$item),
-                            )*
-                            reason => Err(crate::io_error!(
-                                Other,
-                                "unknown {}: {:#x}",
-                                stringify!($name),
-                                reason,
-                            )),
+                impl From<$repr_ty> for $name {
+                    fn from(value: $repr_ty) -> Self {
+                        match value {
+                            $( [< $prefix $item >] => Self::$item, )*
+                            value => panic!("unknown {}: {:#x}", stringify!($name), value),
                         }
                     }
                 }
@@ -311,16 +302,16 @@ declare_friendly_enum! {
         HOST_RIP,
         MAX,
     },
-    pub enum ExitReason : u16 [ u16 ] => VMX_REASON_ :: {
-        EXCEPTION,
+    pub enum ExitReason : u64 [ u64 ] => VMX_REASON_ :: {
+        EXC_NMI,
         IRQ,
         TRIPLE_FAULT,
         INIT,
         SIPI,
         IO_SMI,
         OTHER_SMI,
-        IRQ_WINDOW,
-        NMI_WINDOW,
+        IRQ_WND,
+        VIRTUAL_NMI_WND,
         TASK,
         CPUID,
         GETSEC,
@@ -395,41 +386,6 @@ declare_friendly_enum! {
     },
 }
 
-#[repr(C, align(4))]
-#[derive(Clone, Copy)]
-pub struct VmExit {
-    pub reason: ExitReason,
-    pub flags: u16,
-}
-
-impl VmExit {
-    #[inline(always)]
-    pub const fn is_error(&self) -> bool {
-        (self.flags & VMX_FLAGS_ERROR) != 0
-    }
-}
-
-impl Debug for VmExit {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        f.debug_struct("VmExit")
-            .field("reason", &self.reason)
-            .field_with("flags", |f| write!(f, "0x{:04x}", self.flags))
-            .finish()
-    }
-}
-
-impl TryFrom<u64> for VmExit {
-    type Error = IoError;
-
-    #[inline]
-    fn try_from(value: u64) -> IoResult<Self> {
-        Ok(Self {
-            reason: ExitReason::try_from(value as u16)?,
-            flags: (value >> 16) as u16,
-        })
-    }
-}
-
 /// Format of Access Rights:
 ///   3-0 : T - Segment type
 ///   4   : S — Descriptor type (0 = system; 1 = code or data)
@@ -459,13 +415,14 @@ impl Display for SegAR {
     }
 }
 
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum MsrAccess {
-    Read = HV_MSR_READ,
-    Write = HV_MSR_WRITE,
-    ReadWrite = HV_MSR_READ | HV_MSR_WRITE,
-}
+const CPU_BASED_FLAGS: u64 = CPU_BASED_HLT
+    | CPU_BASED_MWAIT
+    | CPU_BASED_TSC_OFFSET
+    | CPU_BASED_TPR_SHADOW
+    | CPU_BASED_SECONDARY_CTLS;
+
+const PIN_BASED_FLAGS: u64 = PIN_BASED_INTR | PIN_BASED_NMI | PIN_BASED_VIRTUAL_NMI;
+const CPU_BASED_2_FLAGS: u64 = CPU_BASED2_VIRTUAL_APIC | CPU_BASED2_RDTSCP;
 
 pub struct Cpu {
     run: AtomicBool,
@@ -473,87 +430,355 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    fn new() -> IoResult<Self> {
-        let run = AtomicBool::new(true);
-        let mut cpu = 0u32;
-        hv_call!(hv_vcpu_create(&raw mut cpu, HV_VCPU_DEFAULT))?;
-        Ok(Self { run, cpu })
+    fn new(vm: &Vm, id: u32, rip: u64) -> Self {
+        let entry = cap2ctrl(vm.caps(Capability::ENTRY), 0);
+        let pin_based = cap2ctrl(vm.caps(Capability::PINBASED), PIN_BASED_FLAGS);
+        let proc_based = cap2ctrl(vm.caps(Capability::PROCBASED), CPU_BASED_FLAGS);
+        let proc_based_2 = cap2ctrl(vm.caps(Capability::PROCBASED2), CPU_BASED_2_FLAGS);
+
+        /* construct the CPU instance */
+        let cpu = Self {
+            run: AtomicBool::new(true),
+            cpu: id,
+        };
+
+        /* setup VM control registers */
+        cpu.write_vmcs(Vmcs::CTRL_PIN_BASED, pin_based);
+        cpu.write_vmcs(Vmcs::CTRL_CPU_BASED, proc_based);
+        cpu.write_vmcs(Vmcs::CTRL_CPU_BASED2, proc_based_2);
+        cpu.write_vmcs(Vmcs::CTRL_VMENTRY_CONTROLS, entry);
+        cpu.write_vmcs(Vmcs::CTRL_EXC_BITMAP, 0);
+        cpu.write_vmcs(Vmcs::CTRL_TPR_THRESHOLD, 0);
+
+        /* enable native MSRs */
+        cpu.enable_native_msr(Msr::IA32_STAR, true);
+        cpu.enable_native_msr(Msr::IA32_LSTAR, true);
+        cpu.enable_native_msr(Msr::IA32_CSTAR, true);
+        cpu.enable_native_msr(Msr::IA32_FMASK, true);
+        cpu.enable_native_msr(Msr::IA32_FS_BASE, true);
+        cpu.enable_native_msr(Msr::IA32_GS_BASE, true);
+        cpu.enable_native_msr(Msr::IA32_KERNEL_GS_BASE, true);
+        cpu.enable_native_msr(Msr::IA32_TSC_AUX, true);
+        cpu.enable_native_msr(Msr::IA32_TSC, true);
+        cpu.enable_native_msr(Msr::IA32_SYSENTER_CS, true);
+        cpu.enable_native_msr(Msr::IA32_SYSENTER_EIP, true);
+        cpu.enable_native_msr(Msr::IA32_SYSENTER_ESP, true);
+
+        /* reset the processor */
+        cpu.reset(rip);
+        cpu
     }
 }
 
 impl Cpu {
-    #[inline]
-    pub fn read_msr(&self, msr: Msr) -> IoResult<u64> {
+    fn read_msr(&self, msr: Msr) -> u64 {
         let mut ret = 0u64;
-        hv_call!(hv_vcpu_read_msr(self.cpu, msr.msr(), &raw mut ret))?;
-        Ok(ret)
+        hv_call!(hv_vcpu_read_msr(self.cpu, msr.msr(), &raw mut ret));
+        ret
     }
 
-    #[inline]
-    pub fn read_reg(&self, reg: Reg) -> IoResult<u64> {
+    fn write_msr(&self, msr: Msr, value: u64) {
+        hv_call!(hv_vcpu_write_msr(self.cpu, msr.msr(), value));
+    }
+
+    fn read_reg(&self, reg: Reg) -> u64 {
         let mut ret = 0u64;
-        hv_call!(hv_vcpu_read_register(self.cpu, reg.reg(), &raw mut ret))?;
-        Ok(ret)
+        hv_call!(hv_vcpu_read_register(self.cpu, reg.reg(), &raw mut ret));
+        ret
     }
 
-    #[inline]
-    pub fn read_vmcs(&self, vmcs: Vmcs) -> IoResult<u64> {
+    fn write_reg(&self, reg: Reg, value: u64) {
+        hv_call!(hv_vcpu_write_register(self.cpu, reg.reg(), value));
+    }
+
+    fn read_vmcs(&self, vmcs: Vmcs) -> u64 {
         let mut ret = 0u64;
-        hv_call!(hv_vmx_vcpu_read_vmcs(self.cpu, vmcs.vmcs(), &raw mut ret))?;
-        Ok(ret)
+        hv_call!(hv_vmx_vcpu_read_vmcs(self.cpu, vmcs.vmcs(), &raw mut ret));
+        ret
     }
 
-    #[inline]
-    pub fn write_msr(&self, msr: Msr, value: u64) -> IoResult<()> {
-        hv_call!(hv_vcpu_write_msr(self.cpu, msr.msr(), value))
+    fn write_vmcs(&self, vmcs: Vmcs, value: u64) {
+        hv_call!(hv_vmx_vcpu_write_vmcs(self.cpu, vmcs.vmcs(), value));
     }
 
-    #[inline]
-    pub fn write_reg(&self, reg: Reg, value: u64) -> IoResult<()> {
-        hv_call!(hv_vcpu_write_register(self.cpu, reg.reg(), value))
+    fn flush_tlb(&self) {
+        hv_call!(hv_vcpu_invalidate_tlb(self.cpu));
     }
 
-    #[inline]
-    pub fn write_vmcs(&self, vmcs: Vmcs, value: u64) -> IoResult<()> {
-        hv_call!(hv_vmx_vcpu_write_vmcs(self.cpu, vmcs.vmcs(), value))
-    }
-
-    #[inline]
-    pub fn flush_tlb(&self) -> IoResult<()> {
-        hv_call!(hv_vcpu_invalidate_tlb(self.cpu))
-    }
-
-    pub fn set_msr_access(&self, msr: Msr, flags: MsrAccess) -> IoResult<()> {
-        hv_call!(hv_vcpu_set_msr_access(self.cpu, msr.msr(), flags as u32))
-    }
-
-    #[inline]
-    pub fn enable_native_msr(&self, msr: Msr, enable: bool) -> IoResult<()> {
-        hv_call!(hv_vcpu_enable_native_msr(self.cpu, msr.msr(), enable))
-    }
-
-    pub fn enable_managed_msr(&self, msr: Msr, enabled: bool) -> IoResult<()> {
-        hv_call!(hv_vcpu_enable_managed_msr(self.cpu, msr.msr(), enabled))
+    fn enable_native_msr(&self, msr: Msr, enable: bool) {
+        hv_call!(hv_vcpu_enable_native_msr(self.cpu, msr.msr(), enable));
     }
 }
 
 impl Cpu {
-    fn advance(&self) -> IoResult<VmExit> {
-        hv_call!(hv_vcpu_run(self.cpu))?;
-        self.read_vmcs(Vmcs::RO_EXIT_REASON)?.try_into()
+    fn next(&self) {
+        let rip = self.read_reg(Reg::RIP);
+        let len = self.read_vmcs(Vmcs::RO_VMEXIT_INSTR_LEN);
+        self.write_reg(Reg::RIP, rip + len);
+    }
+
+    fn reset(&self, rip: u64) {
+        macro_rules! set_segment {
+            ($name:ident, $ar:literal) => {
+                paste::paste! {
+                    self.write_vmcs(Vmcs::[< GUEST_ $name >], 0);
+                    self.write_vmcs(Vmcs::[< GUEST_ $name _AR >], $ar);
+                    self.write_vmcs(Vmcs::[< GUEST_ $name _BASE >], 0);
+                    self.write_vmcs(Vmcs::[< GUEST_ $name _LIMIT >], 0xffff);
+                }
+            };
+        }
+
+        /* general purpose registers */
+        self.write_reg(Reg::RIP, rip);
+        self.write_reg(Reg::RFLAGS, 2);
+        self.write_reg(Reg::RAX, 0);
+        self.write_reg(Reg::RCX, 0);
+        self.write_reg(Reg::RDX, 0);
+        self.write_reg(Reg::RBX, 0);
+        self.write_reg(Reg::RSP, 0);
+        self.write_reg(Reg::RBP, 0);
+        self.write_reg(Reg::RSI, 0);
+        self.write_reg(Reg::RDI, 0);
+        self.write_reg(Reg::R8, 0);
+        self.write_reg(Reg::R9, 0);
+        self.write_reg(Reg::R10, 0);
+        self.write_reg(Reg::R11, 0);
+        self.write_reg(Reg::R12, 0);
+        self.write_reg(Reg::R13, 0);
+        self.write_reg(Reg::R14, 0);
+        self.write_reg(Reg::R15, 0);
+        self.write_reg(Reg::XCR0, 1);
+
+        /* GDTR & IDTR */
+        self.write_vmcs(Vmcs::GUEST_GDTR_BASE, 0);
+        self.write_vmcs(Vmcs::GUEST_GDTR_LIMIT, 0xffff);
+        self.write_vmcs(Vmcs::GUEST_IDTR_BASE, 0);
+        self.write_vmcs(Vmcs::GUEST_IDTR_LIMIT, 0xffff);
+
+        /* control registers */
+        self.write_vmcs(Vmcs::GUEST_CR3, 0);
+        self.write_reg(Reg::TPR, 0);
+        self.write_vmcs(Vmcs::CTRL_TPR_THRESHOLD, 0);
+        self.write_vmcs(Vmcs::GUEST_IA32_EFER, 0);
+        self.set_cr4(0);
+        self.set_cr0(0x60000010);
+
+        /* segments */
+        set_segment!(CS, 0x9b);
+        set_segment!(DS, 0x93);
+        set_segment!(ES, 0x93);
+        set_segment!(FS, 0x93);
+        set_segment!(GS, 0x93);
+        set_segment!(SS, 0x93);
+        set_segment!(TR, 0x8b);
+        set_segment!(LDTR, 0x82);
+
+        /* MSRs */
+        self.write_msr(Msr::IA32_SYSENTER_CS, 0);
+        self.write_msr(Msr::IA32_SYSENTER_ESP, 0);
+        self.write_msr(Msr::IA32_SYSENTER_EIP, 0);
+        self.write_msr(Msr::IA32_STAR, 0);
+        self.write_msr(Msr::IA32_CSTAR, 0);
+        self.write_msr(Msr::IA32_KERNEL_GS_BASE, 0);
+        self.write_msr(Msr::IA32_FMASK, 0);
+        self.write_msr(Msr::IA32_LSTAR, 0);
+        self.write_msr(Msr::IA32_GS_BASE, 0);
+        self.write_msr(Msr::IA32_FS_BASE, 0);
+
+        /* debug registers */
+        self.write_reg(Reg::DR0, 0);
+        self.write_reg(Reg::DR1, 0);
+        self.write_reg(Reg::DR2, 0);
+        self.write_reg(Reg::DR3, 0);
+        self.write_reg(Reg::DR4, 0);
+        self.write_reg(Reg::DR5, 0);
+        self.write_reg(Reg::DR6, 0xffff0ff0);
+        self.write_reg(Reg::DR7, 0x00000400);
+    }
+}
+
+const CR0_PE_MASK: u64 = 1 << 0;
+const CR0_MP_MASK: u64 = 1 << 1;
+const CR0_EM_MASK: u64 = 1 << 2;
+const CR0_TS_MASK: u64 = 1 << 3;
+const CR0_ET_MASK: u64 = 1 << 4;
+const CR0_NE_MASK: u64 = 1 << 5;
+const CR0_WP_MASK: u64 = 1 << 16;
+const CR0_AM_MASK: u64 = 1 << 18;
+const CR0_NW_MASK: u64 = 1 << 29;
+const CR0_CD_MASK: u64 = 1 << 30;
+const CR0_PG_MASK: u64 = 1 << 31;
+
+const CR4_PAE_MASK: u64 = 1 << 5;
+const CR4_VMXE_MASK: u64 = 1 << 13;
+
+const EFER_SCE: u64 = 1 << 0;
+const EFER_LME: u64 = 1 << 8;
+const EFER_LMA: u64 = 1 << 10;
+const EFER_NXE: u64 = 1 << 11;
+const EFER_SVME: u64 = 1 << 12;
+const EFER_FFXSR: u64 = 1 << 14;
+
+const AR_TYPE_MASK: u64 = 0x0f;
+const AR_TYPE_BUSY_64_TSS: u64 = 11;
+
+impl Cpu {
+    fn set_cr0(&self, cr0: u64) {
+        let cr0p = self.read_vmcs(Vmcs::GUEST_CR0);
+        let efer = self.read_vmcs(Vmcs::GUEST_IA32_EFER);
+        let mask = CR0_PG_MASK | CR0_CD_MASK | CR0_NW_MASK | CR0_NE_MASK | CR0_ET_MASK;
+
+        /* modify CR0 in long mode */
+        if self.is_lme_ready(cr0, efer) {
+            unimplemented!("modify CR0 in long mode");
+        }
+
+        /* update CR0 mask & shadow */
+        self.write_vmcs(Vmcs::CTRL_CR0_MASK, mask);
+        self.write_vmcs(Vmcs::CTRL_CR0_SHADOW, cr0);
+
+        /* switching in and out of long mode */
+        if efer & EFER_LME != 0 {
+            if (cr0 ^ cr0p) & CR0_PG_MASK != 0 {
+                if cr0 & CR0_PG_MASK != 0 {
+                    self.enter_long_mode(efer);
+                } else {
+                    self.exit_long_mode(efer);
+                }
+            }
+        } else {
+            let entry = self.read_vmcs(Vmcs::CTRL_VMENTRY_CONTROLS);
+            self.write_vmcs(Vmcs::CTRL_VMENTRY_CONTROLS, entry & !VMENTRY_GUEST_IA32E);
+        }
+
+        /* Filter new CR0 after we are finished examining it above. */
+        let cr0 = cr0 & !(mask & !CR0_PG_MASK);
+        self.write_vmcs(Vmcs::GUEST_CR0, cr0 | CR0_NE_MASK | CR0_ET_MASK);
+        self.flush_tlb();
+    }
+
+    fn set_cr4(&self, cr4: u64) {
+        self.write_vmcs(Vmcs::GUEST_CR4, cr4 | CR4_VMXE_MASK);
+        self.write_vmcs(Vmcs::CTRL_CR4_MASK, CR4_VMXE_MASK);
+        self.write_vmcs(Vmcs::CTRL_CR4_SHADOW, cr4);
+        self.flush_tlb();
+    }
+
+    fn is_lme_ready(&self, cr0: u64, efer: u64) -> bool {
+        cr0 & CR0_PG_MASK != 0
+            && efer & EFER_LME == 0
+            && self.read_vmcs(Vmcs::GUEST_CR4) & CR4_PAE_MASK != 0
+    }
+
+    fn exit_long_mode(&self, efer: u64) {
+        let entry = self.read_vmcs(Vmcs::CTRL_VMENTRY_CONTROLS);
+        self.write_vmcs(Vmcs::CTRL_VMENTRY_CONTROLS, entry & !VMENTRY_GUEST_IA32E);
+        self.write_vmcs(Vmcs::GUEST_IA32_EFER, efer & !EFER_LMA);
+    }
+
+    fn enter_long_mode(&self, efer: u64) {
+        let tr_ar = self.read_vmcs(Vmcs::GUEST_TR_AR);
+        let entry = self.read_vmcs(Vmcs::CTRL_VMENTRY_CONTROLS);
+
+        /* enable LMA & IA32E */
+        self.write_vmcs(Vmcs::GUEST_IA32_EFER, efer | EFER_LMA);
+        self.write_vmcs(Vmcs::CTRL_VMENTRY_CONTROLS, entry | VMENTRY_GUEST_IA32E);
+
+        /* adjust access rights for TSS */
+        if efer & EFER_LME != 0 && (tr_ar & AR_TYPE_MASK) != AR_TYPE_BUSY_64_TSS {
+            self.write_vmcs(
+                Vmcs::GUEST_TR_AR,
+                (tr_ar & !AR_TYPE_MASK) | AR_TYPE_BUSY_64_TSS,
+            );
+        }
     }
 }
 
 impl Cpu {
-    #[inline(always)]
-    pub fn run(&self) -> Executor<'_> {
-        Executor(self)
+    fn handle_rdmsr(&self) {
+        match Msr::from(self.read_reg(Reg::RCX) as u32) {
+            Msr::IA32_EFER => {
+                let efer = self.read_vmcs(Vmcs::GUEST_IA32_EFER);
+                eprintln!("RDMSR EFER => {efer:016x}");
+                self.write_reg(Reg::RDX, efer >> 32);
+                self.write_reg(Reg::RAX, efer & 0xffff_ffff);
+                self.next();
+            }
+            msr => {
+                dbg!(&self);
+                unimplemented!("RDMSR: {msr:?}");
+            }
+        }
     }
 
-    pub fn next(&self) -> IoResult<()> {
-        let len = self.read_vmcs(Vmcs::RO_VMEXIT_INSTR_LEN)?;
-        self.write_reg(Reg::RIP, self.read_reg(Reg::RIP)? + len)?;
-        Ok(())
+    fn handle_wrmsr(&self) {
+        match Msr::from(self.read_reg(Reg::RCX) as u32) {
+            Msr::IA32_EFER => {
+                let efer = (self.read_reg(Reg::RDX) << 32) | self.read_reg(Reg::RAX);
+                eprintln!("WRMSR EFER <= {efer:016x}");
+                self.write_vmcs(Vmcs::GUEST_IA32_EFER, efer);
+                self.next();
+            }
+            msr => {
+                dbg!(&self);
+                unimplemented!("WRMSR: {msr:?}");
+            }
+        }
+    }
+
+    fn handle_mov_cr(&self) {
+        let arg = self.read_vmcs(Vmcs::RO_EXIT_QUALIFIC);
+        let val = self.read_reg(Reg::from((((arg >> 8) & 15) + 2) as u32));
+
+        /* dispatch on CR index */
+        match arg & 15 {
+            0 => self.set_cr0(val),
+            4 => self.set_cr4(val),
+            8 => unimplemented!("CR8"),
+            n => panic!("invalid register: CR{n}"),
+        }
+
+        /* advance to the next instruction */
+        self.next();
+    }
+
+    fn unhandled_vm_exit(&self, reason: ExitReason) {
+        dbg!(&self);
+        if reason == ExitReason::EXC_NMI {
+            let irq_info = self.read_vmcs(Vmcs::RO_VMEXIT_IRQ_INFO);
+            eprintln!("irq_info = {irq_info:016x}");
+            let vector = irq_info & 0xff;
+            let ty = (irq_info >> 8) & 0x7;
+            let valid = (irq_info >> 31) & 0x1;
+            eprintln!("  vector={vector} ty={ty} valid={valid}");
+        }
+        std::io::stderr()
+            .write_all(b"* Press ENTER to continue ...")
+            .unwrap();
+        std::io::stderr().flush().unwrap();
+        std::io::stdin().read_line(&mut String::new()).unwrap();
+    }
+}
+
+impl Cpu {
+    pub fn run(&self) {
+        while self.run.load(Ordering::Acquire) {
+            let reason = {
+                hv_call!(hv_vcpu_run(self.cpu));
+                self.read_vmcs(Vmcs::RO_EXIT_REASON)
+            };
+            if reason & VMX_FLAGS_ERROR != 0 {
+                panic!("VM Enter error: {reason:08x}");
+            }
+            match ExitReason::from(reason & VMX_REASON_MASK) {
+                ExitReason::MOV_CR => self.handle_mov_cr(),
+                ExitReason::RDMSR => self.handle_rdmsr(),
+                ExitReason::WRMSR => self.handle_wrmsr(),
+                ExitReason::EPT_VIOLATION => {}
+                reason => self.unhandled_vm_exit(reason),
+            }
+        }
     }
 }
 
@@ -561,7 +786,7 @@ impl Cpu {
     fn dump_vmcs(&self, f: &mut Formatter<'_>) -> FmtResult {
         macro_rules! vmcs {
             ($name:ident) => {
-                self.read_vmcs(Vmcs::$name).unwrap_or_default()
+                self.read_vmcs(Vmcs::$name)
             };
         }
         writeln!(f, "  VMCS:")?;
@@ -582,7 +807,7 @@ impl Cpu {
     fn dump_regs(&self, f: &mut Formatter<'_>) -> FmtResult {
         macro_rules! r {
             ($name:ident) => {
-                self.read_reg(Reg::$name).unwrap_or_default()
+                self.read_reg(Reg::$name)
             };
         }
         writeln!(f, "  Generic Registers:")?;
@@ -611,10 +836,10 @@ impl Cpu {
                         f,
                         "    {:-4} {:04x} {:016x} {:016x} {}",
                         stringify!($name),
-                        self.read_reg(Reg::$name).unwrap_or_default(),
-                        self.read_vmcs(Vmcs::[< GUEST_ $name _BASE >]).unwrap_or_default(),
-                        self.read_vmcs(Vmcs::[< GUEST_ $name _LIMIT >]).unwrap_or_default(),
-                        SegAR(self.read_vmcs(Vmcs::[< GUEST_ $name _AR >]).unwrap_or_default())
+                        self.read_reg(Reg::$name),
+                        self.read_vmcs(Vmcs::[< GUEST_ $name _BASE >]),
+                        self.read_vmcs(Vmcs::[< GUEST_ $name _LIMIT >]),
+                        SegAR(self.read_vmcs(Vmcs::[< GUEST_ $name _AR >]))
                     )
                 }
             };
@@ -626,8 +851,8 @@ impl Cpu {
                         f,
                         "    {:-4}      {:016x} {:016x}",
                         stringify!($name),
-                        self.read_vmcs(Vmcs::[< GUEST_ $name _BASE >]).unwrap_or_default(),
-                        self.read_vmcs(Vmcs::[< GUEST_ $name _LIMIT >]).unwrap_or_default(),
+                        self.read_vmcs(Vmcs::[< GUEST_ $name _BASE >]),
+                        self.read_vmcs(Vmcs::[< GUEST_ $name _LIMIT >]),
                     )
                 }
             };
@@ -649,14 +874,6 @@ impl Cpu {
         segment!(LDTR)?;
         seg_basic!(GDTR)?;
         seg_basic!(IDTR)?;
-        writeln!(f)?;
-        Ok(())
-    }
-
-    fn dump_vmcs_link(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let link = self.read_vmcs(Vmcs::GUEST_LINK_POINTER).unwrap_or_default();
-        writeln!(f, "  VMCS Link Pointer:")?;
-        writeln!(f, "    {link:016x}")?;
         Ok(())
     }
 }
@@ -667,24 +884,7 @@ impl Debug for Cpu {
         self.dump_vmcs(f)?;
         self.dump_regs(f)?;
         self.dump_segments(f)?;
-        self.dump_vmcs_link(f)?;
         Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub struct Executor<'p>(&'p Cpu);
-
-impl Iterator for Executor<'_> {
-    type Item = IoResult<VmExit>;
-
-    #[inline]
-    fn next(&mut self) -> Option<IoResult<VmExit>> {
-        if self.0.run.load(Ordering::Relaxed) {
-            Some(self.0.advance())
-        } else {
-            None
-        }
     }
 }
 
@@ -692,35 +892,50 @@ struct X86_64;
 pub struct Vm(X86_64);
 
 impl Vm {
-    pub fn new() -> IoResult<Self> {
-        hv_call!(hv_vm_create(HV_VM_DEFAULT))?;
-        Ok(Self(X86_64))
+    pub fn new() -> Self {
+        hv_call!(hv_vm_create(HV_VM_DEFAULT));
+        Self(X86_64)
     }
 }
 
 impl Vm {
-    pub fn map(&self, base: u64, mem: &Memory, prot: Protection) -> IoResult<()> {
-        hv_call!(hv_vm_map(mem.base, base, mem.size, prot.bits()))
+    pub fn caps(&self, caps: Capability) -> u64 {
+        let mut ret = 0u64;
+        hv_call!(hv_vmx_read_capability(caps.capability(), &raw mut ret));
+        ret
+    }
+}
+
+impl Vm {
+    pub fn map(&self, base: u64, mem: &Memory, prot: Protection) {
+        hv_call!(hv_vm_map(mem.base, base, mem.size, prot.bits()));
     }
 
-    pub fn protect(&self, base: u64, size: usize, prot: Protection) -> IoResult<()> {
+    pub fn protect(&self, base: u64, size: usize, prot: Protection) {
         hv_call!(hv_vm_protect(base, size, prot.bits()))
     }
 }
 
 impl Vm {
-    pub fn caps(&self, caps: Capability) -> IoResult<u64> {
-        let mut ret = 0u64;
-        hv_call!(hv_vmx_read_capability(caps.capability(), &raw mut ret))?;
-        Ok(ret)
+    #[inline(always)]
+    pub fn create_vcpu(&self, rip: u64) -> Cpu {
+        let mut id = 0u32;
+        hv_call!(hv_vcpu_create(&raw mut id, HV_VCPU_DEFAULT));
+        Cpu::new(self, id, rip)
     }
 }
 
 impl Drop for Vm {
     fn drop(&mut self) {
-        if let Err(err) = hv_call!(hv_vm_destroy()) {
-            tracing::error!("Cannot destroy vm: {err}")
+        unsafe {
+            hv_vm_destroy();
         }
+    }
+}
+
+impl Default for Vm {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -733,195 +948,26 @@ const fn cap2ctrl(cap: u64, ctrl: u64) -> u64 {
 }
 
 pub fn vm_main() -> IoResult<()> {
-    let vm = Vm::new()?;
-    let cpu = Cpu::new()?;
-
-    /* Pin-based Control */
-    let pin_based = cap2ctrl(
-        vm.caps(Capability::PINBASED)?,
-        PIN_BASED_INTR | PIN_BASED_NMI | PIN_BASED_VIRTUAL_NMI,
-    );
-
-    /* CPU-based Control */
-    let cpu_based = cap2ctrl(
-        vm.caps(Capability::PROCBASED)?,
-        CPU_BASED_HLT
-            | CPU_BASED_MWAIT
-            | CPU_BASED_TSC_OFFSET
-            | CPU_BASED_TPR_SHADOW
-            | CPU_BASED_SECONDARY_CTLS,
-    );
-
-    /* Secondary CPU-based Control */
-    let cpu_based_2 = cap2ctrl(
-        vm.caps(Capability::PROCBASED2)?,
-        CPU_BASED2_VIRTUAL_APIC | CPU_BASED2_RDTSCP,
-    );
-
-    /* VM Entry Control */
-    let entry = vm.caps(Capability::ENTRY)?;
-    let entry = cap2ctrl(entry, 0);
-
-    /* setup VM control registers */
-    cpu.write_vmcs(Vmcs::CTRL_PIN_BASED, pin_based)?;
-    cpu.write_vmcs(Vmcs::CTRL_CPU_BASED, cpu_based)?;
-    cpu.write_vmcs(Vmcs::CTRL_CPU_BASED2, cpu_based_2)?;
-    cpu.write_vmcs(Vmcs::CTRL_VMENTRY_CONTROLS, entry)?;
-    cpu.write_vmcs(Vmcs::CTRL_EXC_BITMAP, 0)?;
-    cpu.write_vmcs(Vmcs::CTRL_TPR_THRESHOLD, 0)?;
-
-    /* enable native MSRs */
-    cpu.enable_native_msr(Msr::IA32_STAR, true)?;
-    cpu.enable_native_msr(Msr::IA32_LSTAR, true)?;
-    cpu.enable_native_msr(Msr::IA32_CSTAR, true)?;
-    cpu.enable_native_msr(Msr::IA32_FMASK, true)?;
-    cpu.enable_native_msr(Msr::IA32_FS_BASE, true)?;
-    cpu.enable_native_msr(Msr::IA32_GS_BASE, true)?;
-    cpu.enable_native_msr(Msr::IA32_KERNEL_GS_BASE, true)?;
-    cpu.enable_native_msr(Msr::IA32_TSC_AUX, true)?;
-    cpu.enable_native_msr(Msr::IA32_TSC, true)?;
-    cpu.enable_native_msr(Msr::IA32_SYSENTER_CS, true)?;
-    cpu.enable_native_msr(Msr::IA32_SYSENTER_EIP, true)?;
-    cpu.enable_native_msr(Msr::IA32_SYSENTER_ESP, true)?;
-
-    /* setup guest control registers */
-    cpu.write_vmcs(Vmcs::GUEST_CR0, 0x20)?;
-    cpu.write_vmcs(Vmcs::GUEST_CR3, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_CR4, 0x2000)?;
-
-    /* setup code segment */
-    cpu.write_vmcs(Vmcs::GUEST_CS, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_CS_AR, 0x9b)?;
-    cpu.write_vmcs(Vmcs::GUEST_CS_BASE, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_CS_LIMIT, 0xffff)?;
-
-    /* setup data segments */
-    cpu.write_vmcs(Vmcs::GUEST_SS, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_DS, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_ES, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_SS_AR, 0x93)?;
-    cpu.write_vmcs(Vmcs::GUEST_DS_AR, 0x93)?;
-    cpu.write_vmcs(Vmcs::GUEST_ES_AR, 0x93)?;
-    cpu.write_vmcs(Vmcs::GUEST_SS_BASE, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_DS_BASE, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_ES_BASE, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_SS_LIMIT, 0xffff)?;
-    cpu.write_vmcs(Vmcs::GUEST_DS_LIMIT, 0xffff)?;
-    cpu.write_vmcs(Vmcs::GUEST_ES_LIMIT, 0xffff)?;
-
-    /* FS & GS */
-    cpu.write_vmcs(Vmcs::GUEST_FS, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_GS, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_FS_AR, 0x10000)?;
-    cpu.write_vmcs(Vmcs::GUEST_GS_AR, 0x10000)?;
-    cpu.write_vmcs(Vmcs::GUEST_FS_BASE, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_GS_BASE, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_FS_LIMIT, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_GS_LIMIT, 0)?;
-
-    /* GDTR & IDTR */
-    cpu.write_vmcs(Vmcs::GUEST_GDTR_BASE, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_IDTR_BASE, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_GDTR_LIMIT, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_IDTR_LIMIT, 0)?;
-
-    /* LDTR */
-    cpu.write_vmcs(Vmcs::GUEST_LDTR, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_LDTR_AR, 0x10000)?;
-    cpu.write_vmcs(Vmcs::GUEST_LDTR_BASE, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_LDTR_LIMIT, 0)?;
-
-    /* TR (TSS) */
-    cpu.write_vmcs(Vmcs::GUEST_TR, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_TR_AR, 0x83)?;
-    cpu.write_vmcs(Vmcs::GUEST_TR_BASE, 0)?;
-    cpu.write_vmcs(Vmcs::GUEST_TR_LIMIT, 0)?;
-
-    let mut boot = Memory::mmap(BOOTMEM_SIZE)?;
+    let vmm = Vm::new();
+    let cpu = vmm.create_vcpu(ENTRY_POINT as u64);
 
     let code = std::fs::read("/Users/chenzhuoyu/Sources/tests/test_hvf/init.bin")?;
-    boot.view_mut(ENTRY_POINT).put_slice(&code);
-    vm.map(0, &boot, Protection::all())?;
+    let mut mem = Memory::mmap(BOOTMEM_SIZE)?;
 
-    cpu.write_reg(Reg::RIP, ENTRY_POINT as u64)?;
-    cpu.write_reg(Reg::RFLAGS, 0x00000002)?;
-
-    for event in cpu.run() {
-        eprintln!("event = {event:?}");
-        let Ok(event) = event else {
-            dbg!(&cpu);
-            break;
-        };
-        if event.is_error() {
-            dbg!(&cpu);
-            eprintln!("VM Enter error");
-            break;
-        }
-        match event.reason {
-            ExitReason::RDMSR => match Msr::try_from(cpu.read_reg(Reg::RCX)? as u32) {
-                Ok(Msr::IA32_EFER) => {
-                    let efer = cpu.read_vmcs(Vmcs::GUEST_IA32_EFER)?;
-                    eprintln!("RDMSR EFER => {efer:016x}");
-                    cpu.write_reg(Reg::RDX, efer >> 32)?;
-                    cpu.write_reg(Reg::RAX, efer & 0xffff_ffff)?;
-                    cpu.next()?;
-                }
-                Ok(msr) => {
-                    dbg!(&cpu);
-                    unimplemented!("RDMSR: {msr:?}");
-                }
-                Err(err) => {
-                    dbg!(&cpu);
-                    panic!("RDMSR: {err}");
-                }
-            },
-            ExitReason::WRMSR => match Msr::try_from(cpu.read_reg(Reg::RCX)? as u32) {
-                Ok(Msr::IA32_EFER) => {
-                    let efer = (cpu.read_reg(Reg::RDX)? << 32) | cpu.read_reg(Reg::RAX)?;
-                    eprintln!("WRMSR EFER <= {efer:016x}");
-                    cpu.write_vmcs(Vmcs::GUEST_IA32_EFER, efer)?;
-                    cpu.next()?;
-                }
-                Ok(msr) => {
-                    dbg!(&cpu);
-                    unimplemented!("WRMSR: {msr:?}");
-                }
-                Err(err) => {
-                    dbg!(&cpu);
-                    panic!("WRMSR: {err}");
-                }
-            },
-            ExitReason::EPT_VIOLATION => {
-                continue;
-            }
-            reason => {
-                dbg!(&cpu);
-                if reason == ExitReason::EXCEPTION {
-                    let irq_info = cpu.read_vmcs(Vmcs::RO_VMEXIT_IRQ_INFO)?;
-                    eprintln!("irq_info = {irq_info:016x}");
-                    let vector = irq_info & 0xff;
-                    let ty = (irq_info >> 8) & 0x7;
-                    let valid = (irq_info >> 31) & 0x1;
-                    eprintln!("  vector={vector} ty={ty} valid={valid}");
-                }
-                std::io::stderr()
-                    .write_all(b"* Press ENTER to continue ...")
-                    .unwrap();
-                std::io::stderr().flush().unwrap();
-                std::io::stdin().read_line(&mut String::new()).unwrap();
-            }
-        }
-    }
+    mem.view_mut(ENTRY_POINT).put_slice(&code);
+    vmm.map(0, &mem, Protection::all());
+    cpu.write_reg(Reg::RIP, ENTRY_POINT as u64);
+    cpu.run();
 
     eprintln!("err = {}", IoError::last_os_error());
     eprintln!(
         "VMCS_RO_EXIT_REASON = 0x{:016x}",
-        cpu.read_vmcs(Vmcs::RO_EXIT_REASON)?
+        cpu.read_vmcs(Vmcs::RO_EXIT_REASON)
     );
     eprintln!(
         "VMCS_RO_EXIT_QUALIFIC = 0x{:016x}",
-        cpu.read_vmcs(Vmcs::RO_EXIT_QUALIFIC)?
+        cpu.read_vmcs(Vmcs::RO_EXIT_QUALIFIC)
     );
-    drop(vm);
+    drop(vmm);
     Ok(())
 }
