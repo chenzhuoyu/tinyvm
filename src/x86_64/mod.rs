@@ -3,7 +3,7 @@ pub mod ffi;
 
 use std::{
     fmt::{Debug, Display, Formatter, Result as FmtResult},
-    io::{Error as IoError, Result as IoResult, Write},
+    io::{Error as IoError, Write},
     sync::atomic::{AtomicBool, Ordering},
 };
 
@@ -11,41 +11,10 @@ use bytes::BufMut;
 use consts::*;
 use ffi::*;
 
-use crate::{Memory, Protection, hv_call};
-
-macro_rules! declare_friendly_enum {
-    ($(pub enum $name:ident : $real_ty:ty [ $repr_ty:ty ] => $prefix:ident :: { $($item:ident),* $(,)? }),* $(,)?) => {
-        paste::paste! {
-            $(
-                #[repr($repr_ty)]
-                #[allow(non_camel_case_types)]
-                #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-                pub enum $name {
-                    $(
-                        $item = [< $prefix $item >],
-                    )*
-                }
-
-                impl $name {
-                    #[allow(dead_code)]
-                    #[inline(always)]
-                    const fn [< $name:snake >](self) -> $real_ty {
-                        self as $real_ty
-                    }
-                }
-
-                impl From<$repr_ty> for $name {
-                    fn from(value: $repr_ty) -> Self {
-                        match value {
-                            $( [< $prefix $item >] => Self::$item, )*
-                            value => panic!("unknown {}: {:#x}", stringify!($name), value),
-                        }
-                    }
-                }
-            )*
-        }
-    };
-}
+use crate::{
+    Memory, Protection, Unit, hv_call,
+    macros::{declare_friendly_enum, define_accessors},
+};
 
 declare_friendly_enum! {
     pub enum Reg : hv_x86_reg_t [ u32 ] => HV_X86_ :: {
@@ -470,37 +439,13 @@ impl Cpu {
     }
 }
 
+define_accessors! {
+    msr  : u64 = (msr: Msr)   :: hv_vcpu_read_msr      -> hv_vcpu_write_msr,
+    reg  : u64 = (reg: Reg)   :: hv_vcpu_read_register -> hv_vcpu_write_register,
+    vmcs : u64 = (vmcs: Vmcs) :: hv_vmx_vcpu_read_vmcs -> hv_vmx_vcpu_write_vmcs,
+}
+
 impl Cpu {
-    fn read_msr(&self, msr: Msr) -> u64 {
-        let mut ret = 0u64;
-        hv_call!(hv_vcpu_read_msr(self.cpu, msr.msr(), &raw mut ret));
-        ret
-    }
-
-    fn write_msr(&self, msr: Msr, value: u64) {
-        hv_call!(hv_vcpu_write_msr(self.cpu, msr.msr(), value));
-    }
-
-    fn read_reg(&self, reg: Reg) -> u64 {
-        let mut ret = 0u64;
-        hv_call!(hv_vcpu_read_register(self.cpu, reg.reg(), &raw mut ret));
-        ret
-    }
-
-    fn write_reg(&self, reg: Reg, value: u64) {
-        hv_call!(hv_vcpu_write_register(self.cpu, reg.reg(), value));
-    }
-
-    fn read_vmcs(&self, vmcs: Vmcs) -> u64 {
-        let mut ret = 0u64;
-        hv_call!(hv_vmx_vcpu_read_vmcs(self.cpu, vmcs.vmcs(), &raw mut ret));
-        ret
-    }
-
-    fn write_vmcs(&self, vmcs: Vmcs, value: u64) {
-        hv_call!(hv_vmx_vcpu_write_vmcs(self.cpu, vmcs.vmcs(), value));
-    }
-
     fn flush_tlb(&self) {
         hv_call!(hv_vcpu_invalidate_tlb(self.cpu));
     }
@@ -888,10 +833,14 @@ impl Debug for Cpu {
     }
 }
 
+#[derive(Debug)]
 struct X86_64;
+
+#[derive(Debug)]
 pub struct Vm(X86_64);
 
 impl Vm {
+    #[inline]
     pub fn new() -> Self {
         hv_call!(hv_vm_create(HV_VM_DEFAULT));
         Self(X86_64)
@@ -899,6 +848,7 @@ impl Vm {
 }
 
 impl Vm {
+    #[inline]
     pub fn caps(&self, caps: Capability) -> u64 {
         let mut ret = 0u64;
         hv_call!(hv_vmx_read_capability(caps.capability(), &raw mut ret));
@@ -907,17 +857,19 @@ impl Vm {
 }
 
 impl Vm {
+    #[inline]
     pub fn map(&self, base: u64, mem: &Memory, prot: Protection) {
         hv_call!(hv_vm_map(mem.base, base, mem.size, prot.bits()));
     }
 
+    #[inline]
     pub fn protect(&self, base: u64, size: usize, prot: Protection) {
         hv_call!(hv_vm_protect(base, size, prot.bits()))
     }
 }
 
 impl Vm {
-    #[inline(always)]
+    #[inline]
     pub fn create_vcpu(&self, rip: u64) -> Cpu {
         let mut id = 0u32;
         hv_call!(hv_vcpu_create(&raw mut id, HV_VCPU_DEFAULT));
@@ -926,14 +878,14 @@ impl Vm {
 }
 
 impl Drop for Vm {
+    #[inline]
     fn drop(&mut self) {
-        unsafe {
-            hv_vm_destroy();
-        }
+        unsafe { hv_vm_destroy() };
     }
 }
 
 impl Default for Vm {
+    #[inline]
     fn default() -> Self {
         Self::new()
     }
@@ -947,7 +899,7 @@ const fn cap2ctrl(cap: u64, ctrl: u64) -> u64 {
     (ctrl | (cap & 0xffffffff)) & (cap >> 32)
 }
 
-pub fn vm_main() -> IoResult<()> {
+pub fn vm_main() -> Unit {
     let vmm = Vm::new();
     let cpu = vmm.create_vcpu(ENTRY_POINT as u64);
 

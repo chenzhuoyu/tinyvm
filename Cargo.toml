@@ -4,13 +4,15 @@ name    = "tinyvm"
 version = "0.1.0"
 
 [dependencies]
+anyhow             = "1.0"
 bitflags           = "2.11"
 bytes              = "1.11"
 libc               = "0.2"
+parking_lot        = "0.12"
 paste              = "1.0"
 tracing            = "0.1"
 tracing-core       = "0.1"
 tracing-subscriber = { version = "0.3", features = ["std", "env-filter"] }
 
 [build-dependencies]
-bindgen = "0.72"
+cc = "1.2"

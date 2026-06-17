@@ -1,6 +1,4 @@
-use std::io::Result as IoResult;
-
-use tinyvm::x86_64::vm_main;
+use tinyvm::{Unit, aarch64::vm_main};
 use tracing_core::LevelFilter;
 use tracing_subscriber::{
     EnvFilter, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
@@ -23,7 +21,7 @@ fn init_logs() {
         .expect("Cannot initialize tracing subscriber");
 }
 
-pub fn main() -> IoResult<()> {
+pub fn main() -> Unit {
     init_logs();
     vm_main()?;
     Ok(())

@@ -1,19 +1,33 @@
 #![feature(debug_closure_helpers)]
+#![feature(macro_metavar_expr)]
+#![cfg_attr(target_arch = "aarch64", feature(portable_simd))]
+#![cfg_attr(target_arch = "aarch64", feature(simd_ffi))]
 
+#[cfg(target_arch = "aarch64")]
+pub mod aarch64;
+pub(crate) mod macros;
+pub mod ptr;
 #[cfg(target_arch = "x86_64")]
 pub mod x86_64;
 
 use std::{
     fmt::{Debug, Formatter, Result as FmtResult},
-    io::{Error as IoError, Result as IoResult},
+    io::Error as IoError,
     ops::{Deref, DerefMut},
 };
 
+#[cfg(target_arch = "aarch64")]
+use aarch64::ffi;
+use anyhow::Context;
 use bytes::{Buf, BufMut, buf::UninitSlice};
 use ffi::{HV_MEMORY_EXEC, HV_MEMORY_READ, HV_MEMORY_WRITE};
-use libc::{MAP_ANON, MAP_FAILED, MAP_PRIVATE, PROT_READ, PROT_WRITE, c_void};
+use libc::{MAP_ANON, MAP_FAILED, MAP_PRIVATE, PROT_READ, PROT_WRITE};
+use ptr::Uintptr;
 #[cfg(target_arch = "x86_64")]
-pub use x86_64::{Cpu, Vm, ffi};
+use x86_64::ffi;
+
+pub type Unit = Maybe<()>;
+pub type Maybe<T> = Result<T, anyhow::Error>;
 
 #[macro_export]
 macro_rules! hv_call {
@@ -24,8 +38,14 @@ macro_rules! hv_call {
             $crate::ffi::HV_ERROR => panic!(concat!(stringify!($name), ": generic hypervisor error")),
             $crate::ffi::HV_BUSY => panic!(concat!(stringify!($name), ": hypervisor is busy")),
             $crate::ffi::HV_BAD_ARGUMENT => panic!(concat!(stringify!($name), ": bad arguments")),
+            $crate::ffi::HV_ILLEGAL_GUEST_STATE => panic!(concat!(stringify!($name), ": illegal guest state")),
             $crate::ffi::HV_NO_RESOURCES => panic!(concat!(stringify!($name), ": insufficient resources")),
             $crate::ffi::HV_NO_DEVICE => panic!(concat!(stringify!($name), ": no devices")),
+            $crate::ffi::HV_DENIED => panic!(concat!(stringify!($name), ": denied")),
+            #[cfg(target_arch = "x86_64")]
+            $crate::ffi::HV_FAULT => panic!(concat!(stringify!($name), ": fault")),
+            #[cfg(target_arch = "aarch64")]
+            $crate::ffi::HV_EXISTS => panic!(concat!(stringify!($name), ": exists")),
             $crate::ffi::HV_UNSUPPORTED => panic!(concat!(stringify!($name), ": unsupported operation")),
             err => panic!("{}: unknown error: {}", stringify!($name), err),
         }
@@ -78,17 +98,17 @@ impl Debug for Protection {
 }
 
 pub trait Addressable {
-    fn addr(&self) -> u64;
     fn size(&self) -> usize;
+    fn addr(&self) -> Uintptr;
 }
 
 pub struct Memory {
-    pub(crate) base: *mut c_void,
-    pub(crate) size: usize,
+    base: Uintptr,
+    size: usize,
 }
 
 impl Memory {
-    pub fn mmap(size: usize) -> IoResult<Self> {
+    pub fn mmap(size: usize) -> Maybe<Self> {
         let base = unsafe {
             libc::mmap(
                 std::ptr::null_mut(),
@@ -101,9 +121,12 @@ impl Memory {
         };
         if std::ptr::eq(base, MAP_FAILED) {
             tracing::error!("Cannot map memory with size {size}");
-            return Err(IoError::last_os_error());
+            return Err(IoError::last_os_error()).context("cannot map memory");
         }
-        Ok(Self { base, size })
+        Ok(Self {
+            base: base.into(),
+            size,
+        })
     }
 }
 
@@ -121,7 +144,7 @@ impl Memory {
 
 impl Drop for Memory {
     fn drop(&mut self) {
-        if unsafe { libc::munmap(self.base, self.size) } != 0 {
+        if unsafe { libc::munmap(self.base.as_ptr(), self.size) } != 0 {
             tracing::error!(
                 "Cannot unmap memory block at {:p} of size {}: {}",
                 self.base,
@@ -134,7 +157,7 @@ impl Drop for Memory {
 
 impl Debug for Memory {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let end = unsafe { self.base.add(self.size) };
+        let end = self.base + self.size;
         write!(f, "memory({:p}-{:p})", self.base, end)
     }
 }
@@ -144,26 +167,26 @@ impl Deref for Memory {
 
     #[inline(always)]
     fn deref(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.base as *const u8, self.size) }
+        unsafe { std::slice::from_raw_parts(self.base.as_ptr(), self.size) }
     }
 }
 
 impl DerefMut for Memory {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut [u8] {
-        unsafe { std::slice::from_raw_parts_mut(self.base as *mut u8, self.size) }
+        unsafe { std::slice::from_raw_parts_mut(self.base.as_ptr(), self.size) }
     }
 }
 
 impl Addressable for Memory {
     #[inline(always)]
-    fn addr(&self) -> u64 {
-        self.base.addr() as u64
+    fn size(&self) -> usize {
+        self.size
     }
 
     #[inline(always)]
-    fn size(&self) -> usize {
-        self.size
+    fn addr(&self) -> Uintptr {
+        self.base
     }
 }
 
@@ -193,13 +216,13 @@ impl Buf for MemoryView<'_> {
 
 impl Addressable for MemoryView<'_> {
     #[inline(always)]
-    fn addr(&self) -> u64 {
-        self.mem.addr() + (self.pos as u64)
+    fn size(&self) -> usize {
+        self.mem.size() - self.pos
     }
 
     #[inline(always)]
-    fn size(&self) -> usize {
-        self.mem.size() - self.pos
+    fn addr(&self) -> Uintptr {
+        self.mem.addr() + self.pos
     }
 }
 
@@ -229,12 +252,12 @@ unsafe impl BufMut for MemoryViewMut<'_> {
 
 impl Addressable for MemoryViewMut<'_> {
     #[inline(always)]
-    fn addr(&self) -> u64 {
-        self.mem.addr() + (self.pos as u64)
+    fn size(&self) -> usize {
+        self.mem.size() - self.pos
     }
 
     #[inline(always)]
-    fn size(&self) -> usize {
-        self.mem.size() - self.pos
+    fn addr(&self) -> Uintptr {
+        self.mem.addr() + self.pos
     }
 }

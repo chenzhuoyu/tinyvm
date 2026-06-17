@@ -1,5 +1,6 @@
 /* This file is modified from the bindgen generated one */
 
+#![allow(dead_code)]
 #![allow(non_camel_case_types)]
 
 pub const HV_APIC_STATE_EXT_VER: u64 = 100;
@@ -65,6 +66,7 @@ pub const HV_SUCCESS: hv_return_t = 0;
 pub const HV_ERROR: hv_return_t = 0xfae94001;
 pub const HV_BUSY: hv_return_t = 0xfae94002;
 pub const HV_BAD_ARGUMENT: hv_return_t = 0xfae94003;
+pub const HV_ILLEGAL_GUEST_STATE: hv_return_t = 0xfae94004;
 pub const HV_NO_RESOURCES: hv_return_t = 0xfae94005;
 pub const HV_NO_DEVICE: hv_return_t = 0xfae94006;
 pub const HV_DENIED: hv_return_t = 0xfae94007;
