@@ -3,10 +3,10 @@ pub mod cpu;
 pub mod ffi;
 pub mod vm;
 
-use bytes::BufMut;
+use cpu::{Reg, SysReg};
 use vm::VM;
 
-use crate::{Memory, Protection, Unit, aarch64::cpu::SysReg, ptr::Uintptr};
+use crate::{Addressable, Memory, Protection, Unit, aarch64::cpu::Cpu};
 
 unsafe extern "C" {
     unsafe static bl_end: u8;
@@ -33,33 +33,26 @@ fn bootloader() -> &'static [u8] {
     }
 }
 
-const PAGE_SIZE: usize = 0x4000;
-const STACK_SIZE: usize = 0x10000;
-
-const BL_BASE: Uintptr = Uintptr::new(0x10000);
-const STUBS_BASE: Uintptr = Uintptr::new(0x4000);
-const STACK_BASE: Uintptr = Uintptr::new(0x20000);
-
 pub fn vm_main() -> Unit {
-    let cpu = VM.new_vcpu(BL_BASE, STACK_BASE + STACK_SIZE - 16);
-    let size = bootloader().len().div_ceil(PAGE_SIZE) * PAGE_SIZE;
+    let cpu = Cpu::new();
+    let irq = Memory::copy_from_slice(irq_stubs())?;
+    let code = Memory::copy_from_slice(bootloader())?;
+    let stack = Memory::mmap(0x10000)?;
 
-    /* map memory for bootloader & stack */
-    let stack = Memory::mmap(STACK_SIZE)?;
-    let mut code = Memory::mmap(size)?;
-    let mut stubs = Memory::mmap(PAGE_SIZE)?;
+    /* map memory regions */
+    VM.map(&irq, Protection::RX);
+    VM.map(&code, Protection::RX);
+    VM.map(&stack, Protection::RW);
 
-    /* inject the bootloader & SVC handler */
-    code.view_mut(0).put_slice(bootloader());
-    stubs.view_mut(0).put_slice(irq_stubs());
+    /* calculate initial PC & SP */
+    let pc = code.addr();
+    let sp = stack.addr() + (stack.size() - 16);
 
-    /* set the CPU to execute the bootloader, and start the virtual CPU */
-    VM.map(BL_BASE, &code, Protection::RX);
-    VM.map(STUBS_BASE, &stubs, Protection::RX);
-    VM.map(STACK_BASE, &stack, Protection::RW);
-
-    /* set the interrupt table at address 0 */
-    cpu.write_sys_reg(SysReg::VBAR_EL1, 0x4000);
+    /* initialize the vCPU and set it to EL0 */
+    cpu.write_reg(Reg::PC, pc.as_u64());
+    cpu.write_reg(Reg::CPSR, 0);
+    cpu.write_sys_reg(SysReg::SP_EL0, sp.as_u64());
+    cpu.write_sys_reg(SysReg::VBAR_EL1, irq.addr().as_u64());
     cpu.run();
     Ok(())
 }

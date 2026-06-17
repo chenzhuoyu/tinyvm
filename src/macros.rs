@@ -33,7 +33,15 @@ macro_rules! declare_friendly_enum {
                 impl $name {
                     #[allow(dead_code)]
                     #[inline(always)]
-                    const fn [< $name:snake >](self) -> $real_ty {
+                    pub fn all() -> impl Iterator<Item = Self> {
+                        [$( Self::$item ),*].into_iter()
+                    }
+                }
+
+                impl $name {
+                    #[allow(dead_code)]
+                    #[inline(always)]
+                    pub const fn [< $name:snake >](self) -> $real_ty {
                         self as $real_ty
                     }
                 }

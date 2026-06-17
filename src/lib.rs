@@ -109,10 +109,14 @@ pub struct Memory {
 
 impl Memory {
     pub fn mmap(size: usize) -> Maybe<Self> {
+        let aligned_size = unsafe {
+            let vm_page_size = libc::vm_page_size;
+            (size + vm_page_size - 1) & !(vm_page_size - 1)
+        };
         let base = unsafe {
             libc::mmap(
                 std::ptr::null_mut(),
-                size,
+                aligned_size,
                 PROT_READ | PROT_WRITE,
                 MAP_ANON | MAP_PRIVATE,
                 -1,
@@ -125,8 +129,14 @@ impl Memory {
         }
         Ok(Self {
             base: base.into(),
-            size,
+            size: aligned_size,
         })
+    }
+
+    pub fn copy_from_slice(data: &[u8]) -> Maybe<Self> {
+        let mut mem = Self::mmap(data.len())?;
+        mem.view_mut(0).put_slice(data);
+        Ok(mem)
     }
 }
 

@@ -20,16 +20,14 @@ _bl_end:
 
 .global _irq_stub_end
 .global _irq_stub_start
-.p2align 4
+.balign 128
 
 _irq_stub_start:
 .set idx, 0
 .rept 16
-    hvc     #idx
+.balign 128
+    hvc #idx
     eret
-.rept 30
-    udf     #0
-.endr
 .set idx, idx + 1
 .endr
 _irq_stub_end:

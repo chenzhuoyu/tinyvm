@@ -8,7 +8,7 @@ fn init_logs() {
     tracing_subscriber::registry()
         .with(
             EnvFilter::builder()
-                .with_default_directive(LevelFilter::OFF.into())
+                .with_default_directive(LevelFilter::DEBUG.into())
                 .from_env()
                 .expect("Cannot initialize env filter"),
         )

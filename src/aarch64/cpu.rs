@@ -1,11 +1,15 @@
 use std::{
     fmt::{Debug, Formatter, Result as FmtResult},
     ptr::NonNull,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        LazyLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
-use super::{consts::*, ffi::*, vm::VM};
+use super::{consts::*, ffi::*};
 use crate::{
+    aarch64::vm::VM,
     hv_call,
     macros::{declare_friendly_enum, define_accessors, define_bit_field},
     ptr::Uintptr,
@@ -297,28 +301,27 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub(super) fn new(pc: Uintptr, sp: Uintptr) -> Self {
+    pub fn new() -> Self {
         let mut id = 0u64;
         let mut exit = std::ptr::null_mut();
-        let cfg = unsafe { hv_vcpu_config_create() };
 
-        /* allocate the vCPU */
+        /* ensure VM is initialized before creating the config */
+        let cfg = unsafe {
+            LazyLock::force(&VM);
+            hv_vcpu_config_create()
+        };
+
+        /* create & initialize the vCPU */
         hv_call!(hv_vcpu_create(&raw mut id, &raw mut exit, cfg));
         hv_call!(hv_vcpu_set_trap_debug_exceptions(id, true));
         hv_call!(hv_vcpu_set_trap_debug_reg_accesses(id, true));
 
         /* construct the CPU state */
-        let cpu = Self {
+        Self {
             cpu: id,
             run: AtomicBool::new(true),
             vmx: NonNull::new(exit).expect("null VM exit buffer"),
-        };
-
-        /* initialize the vCPU with PC & SP, and set it to EL0 */
-        cpu.write_reg(Reg::PC, pc.as_u64());
-        cpu.write_reg(Reg::CPSR, 0);
-        cpu.write_sys_reg(SysReg::SP_EL0, sp.as_u64());
-        cpu
+        }
     }
 }
 
@@ -331,22 +334,19 @@ impl Cpu {
     fn handle_exception(&self, exc: VmException) {
         match Exception::from(exc.syndrome.class()) {
             Exception::AA64_HVC => {
-                let mut x0 = self.read_reg(Reg::X0);
-                let mut x1 = self.read_reg(Reg::X1);
+                let x0 = self.read_reg(Reg::X0);
+                let x1 = self.read_reg(Reg::X1);
                 let x2 = self.read_reg(Reg::X2);
                 let x3 = self.read_reg(Reg::X3);
                 let x4 = self.read_reg(Reg::X4);
                 let x5 = self.read_reg(Reg::X5);
                 let num = self.read_reg(Reg::X16);
-                eprintln!(
-                    "HVC: {exc:#?}, num={num}, x0=0x{x0:x}, x1=0x{x1:x}, x2=0x{x2:x}, \
-                     x3=0x{x3:x}, x4=0x{x4:x}, x5=0x{x5:x}"
-                );
-                if num == 4 {
-                    x1 = VM.translate(x1.into()).expect("invalid address").as_u64();
-                }
-                unsafe { x0 = libc::syscall(num as i32, x0, x1, x2, x3, x4, x5) as u64 };
-                self.write_reg(Reg::X0, x0);
+                dbg!(self);
+                let pc = self.read_reg(Reg::PC) - 4;
+                let pc = Uintptr::from(pc);
+                eprintln!("instr=0x{:04x}", pc.read::<u32>());
+                let x0 = unsafe { libc::syscall(num as i32, x0, x1, x2, x3, x4, x5) };
+                self.write_reg(Reg::X0, x0 as u64);
             }
             Exception::DATA_ABORT => {
                 eprintln!("DATA_ABORT: {exc:#?}");
@@ -370,9 +370,69 @@ impl Cpu {
             match vmx.reason {
                 HV_EXIT_REASON_CANCELED => break,
                 HV_EXIT_REASON_EXCEPTION => self.handle_exception(vmx.exception.into()),
-                HV_EXIT_REASON_VTIMER_ACTIVATED => todo!("timer"),
+                HV_EXIT_REASON_VTIMER_ACTIVATED => todo!("timer: {vmx:#?}"),
                 reason => panic!("unknown VM exit reason {reason}"),
             }
         }
+    }
+}
+
+impl Cpu {
+    fn dump_regs(&self, f: &mut Formatter<'_>) -> FmtResult {
+        macro_rules! r {
+            ($name:ident) => {
+                self.read_reg(Reg::$name)
+            };
+        }
+        macro_rules! s {
+            ($name:ident) => {
+                self.read_sys_reg(SysReg::$name)
+            };
+        }
+        writeln!(f, "  Generic Registers:")?;
+        writeln!(f, "     PC: {:016x}      SP: {:016x}", r!(PC), s!(SP_EL0))?;
+        writeln!(f, "     FP: {:016x}      LR: {:016x}", r!(FP), r!(LR))?;
+        writeln!(f, "     X0: {:016x}      X1: {:016x}", r!(X0), r!(X1))?;
+        writeln!(f, "     X2: {:016x}      X3: {:016x}", r!(X2), r!(X3))?;
+        writeln!(f, "     X4: {:016x}      X5: {:016x}", r!(X4), r!(X5))?;
+        writeln!(f, "     X6: {:016x}      X7: {:016x}", r!(X6), r!(X7))?;
+        writeln!(f, "     X8: {:016x}      X9: {:016x}", r!(X8), r!(X9))?;
+        writeln!(f, "    X10: {:016x}     X11: {:016x}", r!(X10), r!(X11))?;
+        writeln!(f, "    X12: {:016x}     X13: {:016x}", r!(X12), r!(X13))?;
+        writeln!(f, "    X14: {:016x}     X15: {:016x}", r!(X14), r!(X15))?;
+        writeln!(f, "    X16: {:016x}     X17: {:016x}", r!(X16), r!(X17))?;
+        writeln!(f, "    X18: {:016x}     X19: {:016x}", r!(X18), r!(X19))?;
+        writeln!(f, "    X20: {:016x}     X21: {:016x}", r!(X20), r!(X21))?;
+        writeln!(f, "    X22: {:016x}     X23: {:016x}", r!(X22), r!(X23))?;
+        writeln!(f, "    X24: {:016x}     X25: {:016x}", r!(X24), r!(X25))?;
+        writeln!(f, "    X26: {:016x}     X27: {:016x}", r!(X26), r!(X27))?;
+        writeln!(f, "    X28: {:016x}", r!(X28))?;
+        writeln!(f)?;
+        writeln!(f, "  Control & Status Registers:")?;
+        writeln!(f, "          FPCR: {:016x}", r!(FPCR))?;
+        writeln!(f, "          FPSR: {:016x}", r!(FPSR))?;
+        writeln!(f, "          CPSR: {:016x}", r!(CPSR))?;
+        writeln!(f, "      SPSR_EL1: {:016x}", s!(SPSR_EL1))?;
+        writeln!(f, "       ELR_EL1: {:016x}", s!(ELR_EL1))?;
+        writeln!(f, "       ESR_EL1: {:016x}", s!(ESR_EL1))?;
+        writeln!(f, "       FAR_EL1: {:016x}", s!(FAR_EL1))?;
+        writeln!(f, "     TPIDR_EL0: {:016x}", s!(TPIDR_EL0))?;
+        writeln!(f, "   TPIDRRO_EL0: {:016x}", s!(TPIDRRO_EL0))?;
+        writeln!(f, "     TPIDR_EL1: {:016x}", s!(TPIDR_EL1))?;
+        Ok(())
+    }
+}
+
+impl Debug for Cpu {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        writeln!(f, "Debug dump of CPU {}:", self.cpu)?;
+        self.dump_regs(f)?;
+        Ok(())
+    }
+}
+
+impl Default for Cpu {
+    fn default() -> Self {
+        Self::new()
     }
 }

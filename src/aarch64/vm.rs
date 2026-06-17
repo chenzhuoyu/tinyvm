@@ -1,54 +1,58 @@
-use std::{collections::BTreeMap, fmt::Debug, sync::LazyLock};
+use std::{fmt::Debug, sync::LazyLock};
 
-use parking_lot::RwLock;
-
-use super::{cpu::Cpu, ffi::*};
+use super::ffi::*;
 use crate::{Addressable, Memory, Protection, hv_call, ptr::Uintptr};
 
 #[derive(Debug)]
 pub struct Vm {
-    mmap: RwLock<BTreeMap<Uintptr, (Uintptr, usize)>>,
+    ipa_bits: u32,
+    max_vcpu_count: usize,
 }
 
 pub static VM: LazyLock<Vm> = LazyLock::new(|| {
     let cfg = unsafe { hv_vm_config_create() };
+    let mut ipa_bits = 0u32;
+    let mut max_vcpu_count = 0u32;
+    hv_call!(hv_vm_get_max_vcpu_count(&raw mut max_vcpu_count));
+    hv_call!(hv_vm_config_get_default_ipa_size(&raw mut ipa_bits));
     hv_call!(hv_vm_config_set_el2_enabled(cfg, false));
     hv_call!(hv_vm_create(cfg));
-    Vm::new()
+    Vm::new(ipa_bits, max_vcpu_count)
 });
 
 impl Vm {
-    fn new() -> Self {
-        let mmap = RwLock::new(BTreeMap::new());
-        Self { mmap }
+    #[inline]
+    fn new(ipa_bits: u32, max_vcpu_count: u32) -> Self {
+        Self {
+            ipa_bits,
+            max_vcpu_count: max_vcpu_count as usize,
+        }
     }
 }
 
 impl Vm {
     #[inline]
-    pub fn map(&self, base: Uintptr, mem: &Memory, prot: Protection) {
+    pub const fn ipa_size(&self) -> usize {
+        1usize << self.ipa_bits
+    }
+
+    #[inline]
+    pub const fn max_vcpu_count(&self) -> usize {
+        self.max_vcpu_count
+    }
+}
+
+impl Vm {
+    #[inline]
+    pub fn map(&self, mem: &Memory, prot: Protection) {
         let size = mem.size();
         let addr = mem.addr();
-        hv_call!(hv_vm_map(addr.as_ptr(), base.as_u64(), size, prot.bits()));
-        self.mmap.write().insert(base, (addr, size));
+        hv_call!(hv_vm_map(addr.as_ptr(), addr.as_u64(), size, prot.bits()));
     }
 
     #[inline]
     pub fn protect(&self, base: Uintptr, size: usize, prot: Protection) {
         hv_call!(hv_vm_protect(base.as_u64(), size, prot.bits()))
-    }
-
-    #[inline]
-    pub fn translate(&self, addr: Uintptr) -> Option<Uintptr> {
-        let (&base, &(host, size)) = self.mmap.read().range(..=addr).next_back()?;
-        (addr < base + size).then_some(host + (addr - base))
-    }
-}
-
-impl Vm {
-    #[inline]
-    pub fn new_vcpu(&self, pc: Uintptr, sp: Uintptr) -> Cpu {
-        Cpu::new(pc, sp)
     }
 }
 
