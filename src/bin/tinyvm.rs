@@ -1,4 +1,4 @@
-use tinyvm::{Unit, aarch64::vm_main};
+use tinyvm::{Unit, aarch64::vm_exec};
 use tracing_core::LevelFilter;
 use tracing_subscriber::{
     EnvFilter, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
@@ -23,6 +23,6 @@ fn init_logs() {
 
 pub fn main() -> Unit {
     init_logs();
-    vm_main()?;
+    vm_exec()?;
     Ok(())
 }

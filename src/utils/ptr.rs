@@ -3,6 +3,8 @@ use std::{
     ops::{Add, AddAssign, Sub, SubAssign},
 };
 
+use fn_ptr::{FnPtr, UntypedFnPtr};
+
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Uintptr(usize);
@@ -15,6 +17,13 @@ impl Uintptr {
     #[inline]
     pub const fn new(addr: usize) -> Self {
         Self(addr)
+    }
+}
+
+impl Uintptr {
+    #[inline]
+    pub fn from_fn(ptr: impl FnPtr) -> Self {
+        Self(ptr.addr())
     }
 }
 
@@ -39,6 +48,13 @@ impl Uintptr {
     #[inline]
     pub const fn as_ptr<T>(self) -> *mut T {
         self.0 as *mut T
+    }
+}
+
+impl Uintptr {
+    #[inline]
+    pub fn as_fn<F: FnPtr>(self) -> F {
+        unsafe { F::from_ptr(self.0 as UntypedFnPtr) }
     }
 }
 

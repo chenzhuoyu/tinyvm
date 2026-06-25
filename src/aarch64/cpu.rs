@@ -12,7 +12,7 @@ use crate::{
     aarch64::vm::VM,
     hv_call,
     macros::{declare_friendly_enum, define_accessors, define_bit_field},
-    ptr::Uintptr,
+    utils::ptr::Uintptr,
 };
 
 declare_friendly_enum! {
@@ -340,19 +340,34 @@ impl Cpu {
                 let x3 = self.read_reg(Reg::X3);
                 let x4 = self.read_reg(Reg::X4);
                 let x5 = self.read_reg(Reg::X5);
-                let num = self.read_reg(Reg::X16);
+                let id = self.read_reg(Reg::X16);
                 dbg!(self);
                 let pc = self.read_reg(Reg::PC) - 4;
                 let pc = Uintptr::from(pc);
-                eprintln!("instr=0x{:04x}", pc.read::<u32>());
-                let x0 = unsafe { libc::syscall(num as i32, x0, x1, x2, x3, x4, x5) };
+                eprintln!(
+                    "instr: {:p} {}",
+                    pc,
+                    disarm64::decoder::decode(pc.read())
+                        .map_or_else(|| "???".to_owned(), |inst| inst.to_string())
+                );
+                let x0 = unsafe { libc::syscall(id as i32, x0, x1, x2, x3, x4, x5) };
                 self.write_reg(Reg::X0, x0 as u64);
             }
             Exception::DATA_ABORT => {
+                dbg!(self);
                 eprintln!("DATA_ABORT: {exc:#?}");
+                let pc = self.read_reg(Reg::PC);
+                let pc = Uintptr::from(pc);
+                eprintln!(
+                    "instr: {:p} {}",
+                    pc,
+                    disarm64::decoder::decode(pc.read())
+                        .map_or_else(|| "???".to_owned(), |inst| inst.to_string())
+                );
                 todo!()
             }
             ec => {
+                dbg!(self);
                 let pc = self.read_reg(Reg::PC);
                 panic!("unhandled exception {ec:?} at 0x{pc:x}: {exc:#?}");
             }
