@@ -505,6 +505,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
+name = "rhexdump"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a92cbe1a3dd221e3777fef339115d3b85e17a538668e03a0f3ae9c6a98351c7"
+
+[[package]]
 name = "rustc_version"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -659,6 +665,7 @@ dependencies = [
  "cc",
  "clap",
  "disarm64",
+ "disarm64_defn",
  "fn-ptr",
  "leb128",
  "libc",
@@ -666,6 +673,7 @@ dependencies = [
  "page_size",
  "parking_lot",
  "paste",
+ "rhexdump",
  "soft-canonicalize",
  "tracing",
  "tracing-core",

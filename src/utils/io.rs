@@ -96,7 +96,6 @@ impl MemoryIo<'_> {
 }
 
 pub struct MappedFile {
-    file: File,
     size: usize,
     base: *mut u8,
 }
@@ -105,7 +104,7 @@ unsafe impl Send for MappedFile {}
 unsafe impl Sync for MappedFile {}
 
 impl MappedFile {
-    pub fn map(file: File, size: usize, offset: usize) -> Maybe<Self> {
+    pub fn map<F: AsRawFd>(file: F, size: usize, offset: usize) -> Maybe<Self> {
         let base = unsafe {
             libc::mmap(
                 std::ptr::null_mut(),
@@ -120,7 +119,6 @@ impl MappedFile {
             return Err(IoError::last_os_error()).context("cannot map file");
         }
         Ok(Self {
-            file,
             size,
             base: base as *mut u8,
         })
@@ -134,11 +132,6 @@ impl MappedFile {
 }
 
 impl MappedFile {
-    #[inline]
-    pub fn fd(&self) -> i32 {
-        self.file.as_raw_fd()
-    }
-
     #[inline]
     pub fn data(&self) -> &'static [u8] {
         unsafe { std::slice::from_raw_parts(self.base, self.size) }
@@ -164,12 +157,13 @@ impl Deref for MappedFile {
 
 impl Debug for MappedFile {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(
-            f,
-            "MappedFile({:?}@{:p}-{:p})",
-            self.file,
-            self.base,
-            unsafe { self.base.add(self.size) }
-        )
+        unsafe {
+            write!(
+                f,
+                "MappedFile({:p}-{:p})",
+                self.base,
+                self.base.add(self.size)
+            )
+        }
     }
 }

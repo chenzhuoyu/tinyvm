@@ -177,7 +177,7 @@ impl Image {
         }
 
         /* map the image, and calculate ASLR slide */
-        let image = Memory::alloc((max_addr - min_addr) as usize, Protection::RW)?;
+        let image = Memory::alloc((max_addr - min_addr) as usize).map(Protection::RW);
         let slide = image.addr().addr() - (min_addr as usize);
 
         /* load the segments */

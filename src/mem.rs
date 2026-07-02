@@ -11,12 +11,9 @@ use ffi::{HV_MEMORY_EXEC, HV_MEMORY_READ, HV_MEMORY_WRITE};
 
 #[cfg(target_arch = "aarch64")]
 use crate::aarch64::{ffi, vm::VM};
+use crate::utils::{ptr::Uintptr, size::is_page_aligned};
 #[cfg(target_arch = "x86_64")]
 use crate::x86_64::ffi;
-use crate::{
-    Maybe,
-    utils::{ptr::Uintptr, size::is_page_aligned},
-};
 
 bitflags::bitflags! {
     #[derive(Clone, Copy)]
@@ -78,7 +75,7 @@ impl MemoryRange for RangeFull {
     fn view(self, mem: &Memory) -> MemoryView<'_> {
         MemoryView {
             size: mem.size,
-            addr: mem.base,
+            addr: mem.addr,
             _ref: PhantomData,
         }
     }
@@ -87,7 +84,7 @@ impl MemoryRange for RangeFull {
     fn view_mut(self, mem: &mut Memory) -> MemoryViewMut<'_> {
         MemoryViewMut {
             size: mem.size,
-            addr: mem.base,
+            addr: mem.addr,
             _ref: PhantomData,
         }
     }
@@ -99,7 +96,7 @@ impl MemoryRange for Range<usize> {
         if self.end <= mem.size && self.start <= mem.size {
             MemoryView {
                 size: self.end.saturating_sub(self.start),
-                addr: mem.base + self.start,
+                addr: mem.addr + self.start,
                 _ref: PhantomData,
             }
         } else {
@@ -112,7 +109,7 @@ impl MemoryRange for Range<usize> {
         if self.end <= mem.size && self.start <= mem.size {
             MemoryViewMut {
                 size: self.end.saturating_sub(self.start),
-                addr: mem.base + self.start,
+                addr: mem.addr + self.start,
                 _ref: PhantomData,
             }
         } else {
@@ -127,7 +124,7 @@ impl MemoryRange for RangeTo<usize> {
         if self.end <= mem.size {
             MemoryView {
                 size: self.end,
-                addr: mem.base,
+                addr: mem.addr,
                 _ref: PhantomData,
             }
         } else {
@@ -140,7 +137,7 @@ impl MemoryRange for RangeTo<usize> {
         if self.end <= mem.size {
             MemoryViewMut {
                 size: self.end,
-                addr: mem.base,
+                addr: mem.addr,
                 _ref: PhantomData,
             }
         } else {
@@ -155,7 +152,7 @@ impl MemoryRange for RangeFrom<usize> {
         if self.start <= mem.size {
             MemoryView {
                 size: mem.size - self.start,
-                addr: mem.base + self.start,
+                addr: mem.addr + self.start,
                 _ref: PhantomData,
             }
         } else {
@@ -168,7 +165,7 @@ impl MemoryRange for RangeFrom<usize> {
         if self.start <= mem.size {
             MemoryViewMut {
                 size: mem.size - self.start,
-                addr: mem.base + self.start,
+                addr: mem.addr + self.start,
                 _ref: PhantomData,
             }
         } else {
@@ -207,17 +204,52 @@ impl MemoryRange for RangeToInclusive<usize> {
     }
 }
 
+pub struct UnmappedMemory {
+    addr: Uintptr,
+    size: usize,
+}
+
+impl UnmappedMemory {
+    #[inline]
+    pub fn map(self, prot: Protection) -> Memory {
+        let base = self.addr;
+        self.map_at(base.as_u64(), prot)
+    }
+
+    #[inline]
+    pub fn map_at(mut self, base: u64, prot: Protection) -> Memory {
+        let size = self.size;
+        let addr = std::mem::replace(&mut self.addr, Uintptr::NIL);
+        VM.map(addr, base, size, prot);
+        Memory { addr, size }
+    }
+}
+
+impl Drop for UnmappedMemory {
+    fn drop(&mut self) {
+        if !self.addr.is_nil() {
+            VM.dealloc(self.addr, self.size);
+        }
+    }
+}
+
+impl Debug for UnmappedMemory {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        let end = self.addr + self.size;
+        write!(f, "unmapped_memory({:p}-{:p})", self.addr, end)
+    }
+}
+
 pub struct Memory {
-    base: Uintptr,
+    addr: Uintptr,
     size: usize,
 }
 
 impl Memory {
-    pub fn alloc(size: usize, prot: Protection) -> Maybe<Self> {
+    pub fn alloc(size: usize) -> UnmappedMemory {
         let size = unsafe { (size + libc::vm_page_size - 1) & !(libc::vm_page_size - 1) };
-        let base = VM.alloc(size);
-        VM.map(base, base.as_u64(), size, prot);
-        Ok(Self { base, size })
+        let addr = VM.alloc(size);
+        UnmappedMemory { addr, size }
     }
 }
 
@@ -235,15 +267,15 @@ impl Memory {
 
 impl Drop for Memory {
     fn drop(&mut self) {
-        VM.unmap(self.base.as_u64(), self.size);
-        VM.dealloc(self.base, self.size);
+        VM.unmap(self.addr.as_u64(), self.size);
+        VM.dealloc(self.addr, self.size);
     }
 }
 
 impl Debug for Memory {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let end = self.base + self.size;
-        write!(f, "memory({:p}-{:p})", self.base, end)
+        let end = self.addr + self.size;
+        write!(f, "memory({:p}-{:p})", self.addr, end)
     }
 }
 
@@ -252,14 +284,14 @@ impl Deref for Memory {
 
     #[inline]
     fn deref(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.base.as_ptr(), self.size) }
+        unsafe { std::slice::from_raw_parts(self.addr.as_ptr(), self.size) }
     }
 }
 
 impl DerefMut for Memory {
     #[inline]
     fn deref_mut(&mut self) -> &mut [u8] {
-        unsafe { std::slice::from_raw_parts_mut(self.base.as_ptr(), self.size) }
+        unsafe { std::slice::from_raw_parts_mut(self.addr.as_ptr(), self.size) }
     }
 }
 
@@ -271,7 +303,7 @@ impl Addressable for Memory {
 
     #[inline]
     fn addr(&self) -> Uintptr {
-        self.base
+        self.addr
     }
 }
 

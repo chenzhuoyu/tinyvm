@@ -1,327 +1,109 @@
 use std::{
     fmt::{Debug, Formatter, Result as FmtResult},
     ptr::NonNull,
-    sync::{
-        LazyLock,
-        atomic::{AtomicBool, Ordering},
-    },
 };
 
-use super::{consts::*, ffi::*};
+use bytes::BufMut;
+
+use super::{ffi::*, regs::*, vm::VM};
 use crate::{
-    aarch64::vm::VM,
     hv_call,
-    macros::{declare_friendly_enum, define_accessors, define_bit_field},
-    utils::ptr::Uintptr,
+    macros::define_accessors,
+    utils::{disasm::disasm, ptr::Uintptr},
 };
 
-declare_friendly_enum! {
-    pub enum Reg : hv_reg_t [ u32 ] => HV_REG_ :: {
-        X0,
-        X1,
-        X2,
-        X3,
-        X4,
-        X5,
-        X6,
-        X7,
-        X8,
-        X9,
-        X10,
-        X11,
-        X12,
-        X13,
-        X14,
-        X15,
-        X16,
-        X17,
-        X18,
-        X19,
-        X20,
-        X21,
-        X22,
-        X23,
-        X24,
-        X25,
-        X26,
-        X27,
-        X28,
-        X29,
-        X30,
-        PC,
-        FPCR,
-        FPSR,
-        CPSR,
-    },
-    pub enum SysReg : hv_sys_reg_t [ u16 ] => HV_SYS_REG_ :: {
-        DBGBVR0_EL1,
-        DBGBCR0_EL1,
-        DBGWVR0_EL1,
-        DBGWCR0_EL1,
-        DBGBVR1_EL1,
-        DBGBCR1_EL1,
-        DBGWVR1_EL1,
-        DBGWCR1_EL1,
-        MDCCINT_EL1,
-        MDSCR_EL1,
-        DBGBVR2_EL1,
-        DBGBCR2_EL1,
-        DBGWVR2_EL1,
-        DBGWCR2_EL1,
-        DBGBVR3_EL1,
-        DBGBCR3_EL1,
-        DBGWVR3_EL1,
-        DBGWCR3_EL1,
-        DBGBVR4_EL1,
-        DBGBCR4_EL1,
-        DBGWVR4_EL1,
-        DBGWCR4_EL1,
-        DBGBVR5_EL1,
-        DBGBCR5_EL1,
-        DBGWVR5_EL1,
-        DBGWCR5_EL1,
-        DBGBVR6_EL1,
-        DBGBCR6_EL1,
-        DBGWVR6_EL1,
-        DBGWCR6_EL1,
-        DBGBVR7_EL1,
-        DBGBCR7_EL1,
-        DBGWVR7_EL1,
-        DBGWCR7_EL1,
-        DBGBVR8_EL1,
-        DBGBCR8_EL1,
-        DBGWVR8_EL1,
-        DBGWCR8_EL1,
-        DBGBVR9_EL1,
-        DBGBCR9_EL1,
-        DBGWVR9_EL1,
-        DBGWCR9_EL1,
-        DBGBVR10_EL1,
-        DBGBCR10_EL1,
-        DBGWVR10_EL1,
-        DBGWCR10_EL1,
-        DBGBVR11_EL1,
-        DBGBCR11_EL1,
-        DBGWVR11_EL1,
-        DBGWCR11_EL1,
-        DBGBVR12_EL1,
-        DBGBCR12_EL1,
-        DBGWVR12_EL1,
-        DBGWCR12_EL1,
-        DBGBVR13_EL1,
-        DBGBCR13_EL1,
-        DBGWVR13_EL1,
-        DBGWCR13_EL1,
-        DBGBVR14_EL1,
-        DBGBCR14_EL1,
-        DBGWVR14_EL1,
-        DBGWCR14_EL1,
-        DBGBVR15_EL1,
-        DBGBCR15_EL1,
-        DBGWVR15_EL1,
-        DBGWCR15_EL1,
-        MIDR_EL1,
-        MPIDR_EL1,
-        ID_AA64PFR0_EL1,
-        ID_AA64PFR1_EL1,
-        ID_AA64ZFR0_EL1,
-        ID_AA64SMFR0_EL1,
-        ID_AA64DFR0_EL1,
-        ID_AA64DFR1_EL1,
-        ID_AA64ISAR0_EL1,
-        ID_AA64ISAR1_EL1,
-        ID_AA64MMFR0_EL1,
-        ID_AA64MMFR1_EL1,
-        ID_AA64MMFR2_EL1,
-        SCTLR_EL1,
-        ACTLR_EL1,
-        CPACR_EL1,
-        SMPRI_EL1,
-        SMCR_EL1,
-        TTBR0_EL1,
-        TTBR1_EL1,
-        TCR_EL1,
-        APIAKEYLO_EL1,
-        APIAKEYHI_EL1,
-        APIBKEYLO_EL1,
-        APIBKEYHI_EL1,
-        APDAKEYLO_EL1,
-        APDAKEYHI_EL1,
-        APDBKEYLO_EL1,
-        APDBKEYHI_EL1,
-        APGAKEYLO_EL1,
-        APGAKEYHI_EL1,
-        SPSR_EL1,
-        ELR_EL1,
-        SP_EL0,
-        AFSR0_EL1,
-        AFSR1_EL1,
-        ESR_EL1,
-        FAR_EL1,
-        PAR_EL1,
-        MAIR_EL1,
-        AMAIR_EL1,
-        VBAR_EL1,
-        CONTEXTIDR_EL1,
-        TPIDR_EL1,
-        SCXTNUM_EL1,
-        CNTKCTL_EL1,
-        CSSELR_EL1,
-        TPIDR_EL0,
-        TPIDRRO_EL0,
-        TPIDR2_EL0,
-        SCXTNUM_EL0,
-        CNTV_CTL_EL0,
-        CNTV_CVAL_EL0,
-        SP_EL1,
-        CNTP_CTL_EL0,
-        CNTP_CVAL_EL0,
-        CNTP_TVAL_EL0,
-        CNTHCTL_EL2,
-        CNTHP_CTL_EL2,
-        CNTHP_CVAL_EL2,
-        CNTHP_TVAL_EL2,
-        CNTVOFF_EL2,
-        CPTR_EL2,
-        ELR_EL2,
-        ESR_EL2,
-        FAR_EL2,
-        HCR_EL2,
-        HPFAR_EL2,
-        MAIR_EL2,
-        MDCR_EL2,
-        SCTLR_EL2,
-        SPSR_EL2,
-        SP_EL2,
-        TCR_EL2,
-        TPIDR_EL2,
-        TTBR0_EL2,
-        TTBR1_EL2,
-        VBAR_EL2,
-        VMPIDR_EL2,
-        VPIDR_EL2,
-        VTCR_EL2,
-        VTTBR_EL2,
-    },
-    pub enum Exception : u64 [ u64 ] => EC_ :: {
-        UNCATEGORIZED,
-        WFX_TRAP,
-        CP15RT_TRAP,
-        CP15RRT_TRAP,
-        CP14RT_TRAP,
-        CP14DT_TRAP,
-        ADVSIMD_FP_ACCESS_TRAP,
-        FPID_TRAP,
-        PAC_TRAP,
-        BXJ_TRAP,
-        CP14RRT_TRAP,
-        BTI_TRAP,
-        ILLEGAL_STATE,
-        AA32_SVC,
-        AA32_HVC,
-        AA32_SMC,
-        AA64_SVC,
-        AA64_HVC,
-        AA64_SMC,
-        SYS_REG_TRAP,
-        SVE_ACCESS_TRAP,
-        ERET_TRAP,
-        PAC_FAIL,
-        SME_TRAP,
-        GPC,
-        INST_ABORT,
-        INST_ABORT_SAME_EL,
-        PC_ALIGN,
-        DATA_ABORT,
-        DATA_ABORT_SAME_EL,
-        SP_ALIGN,
-        MOP,
-        AA32_FPTRAP,
-        AA64_FPTRAP,
-        GCS,
-        SERROR,
-        BREAKPOINT,
-        BREAKPOINT_SAME_EL,
-        SOFTWARE_STEP,
-        SOFTWARE_STEP_SAME_EL,
-        WATCHPOINT,
-        WATCHPOINT_SAME_EL,
-        AA32_BKPT,
-        VECTOR_CATCH,
-        AA64_BKPT,
-    }
-}
+const COMMPAGE_END: Uintptr = Uintptr::new(0x1000000000);
+const COMMPAGE_BEGIN: Uintptr = Uintptr::new(0xfffffc000);
 
-impl Reg {
-    pub const FP: Self = Self::X29;
-    pub const LR: Self = Self::X30;
-}
-
-define_bit_field! {
-    struct Syndrome : u64 {
-        iss      : 25,  // Instruction Specific Syndrome
-        length   : 1,   // Instruction Length
-        class    : 6,   // Exception Class
-        iss2     : 5,   // Instruction Specific Syndrome 2
-        reserved : 27,  // Reserved
-    }
-}
-
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct VmException {
     syndrome: Syndrome,
-    virt_addr: u64,
-    phys_addr: u64,
-}
-
-impl Debug for VmException {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        f.debug_struct("VmException")
-            .field("syndrome", &self.syndrome)
-            .field_with("virt_addr", |f| write!(f, "0x{:x}", self.virt_addr))
-            .field_with("phys_addr", |f| write!(f, "0x{:x}", self.phys_addr))
-            .finish()
-    }
+    phys_addr: Uintptr,
 }
 
 impl From<hv_vcpu_exit_exception_t> for VmException {
     fn from(exc: hv_vcpu_exit_exception_t) -> Self {
         Self {
             syndrome: Syndrome(exc.syndrome),
-            virt_addr: exc.virtual_address,
-            phys_addr: exc.physical_address,
+            phys_addr: exc.physical_address.into(),
         }
     }
 }
 
 pub struct Cpu {
-    cpu: hv_vcpu_t,
-    run: AtomicBool,
-    vmx: NonNull<hv_vcpu_exit_t>,
+    vcpu: hv_vcpu_t,
+    exit: NonNull<hv_vcpu_exit_t>,
 }
 
+const TCR_EL1_INIT: u64 = TCR_EL1(0)
+    .with_IPS(0b101) // 48-bit IPA
+    .with_EPD1(1) // Disable TTBR1_EL1
+    .with_TG0(0b10) // Page size is 16 KiB
+    .with_SH0(0b11) // Inner sharable
+    .with_ORGN0(0b01) // Normal memory, Outer Write-Back Read-Allocate Write-Allocate Cacheable.
+    .with_IRGN0(0b01) // Normal memory, Inner Write-Back Read-Allocate Write-Allocate Cacheable.
+    .with_T0SZ(24) // 40-bit virtual address (1 TiB)
+    .value();
+
+const SCTLR_EL1_INIT: u64 = SCTLR_EL1(0)
+    .with_I(1) // Enable instruction cache
+    .with_SED(1) // Disbale SETEND instruction
+    .with_ITD(1) // Disable IT instruction
+    .with_C(1) // Enable data cache
+    .with_M(1) // Enable MMU
+    .value();
+
 impl Cpu {
-    pub fn new() -> Self {
-        let mut id = 0u64;
+    pub fn new(pc: u64, sp: u64) -> Self {
+        let mut vcpu = 0u64;
         let mut exit = std::ptr::null_mut();
 
-        /* ensure VM is initialized before creating the config */
-        let cfg = unsafe {
-            LazyLock::force(&VM);
+        /* create the vCPU */
+        hv_call!(hv_vcpu_create(
+            &raw mut vcpu,
+            &raw mut exit,
             hv_vcpu_config_create()
-        };
+        ));
 
-        /* create & initialize the vCPU */
-        hv_call!(hv_vcpu_create(&raw mut id, &raw mut exit, cfg));
-        hv_call!(hv_vcpu_set_trap_debug_exceptions(id, true));
-        hv_call!(hv_vcpu_set_trap_debug_reg_accesses(id, true));
+        /* initialize the vCPU */
+        hv_call!(hv_vcpu_set_trap_debug_exceptions(vcpu, true));
+        hv_call!(hv_vcpu_set_trap_debug_reg_accesses(vcpu, true));
+
+        const PAGE_TABLE_BASE: u64 = 0x40000000;
+        const PAGE_TABLE_SIZE: usize = 16384;
+        let mut mem = crate::mem::Memory::alloc(PAGE_TABLE_SIZE)
+            .map_at(PAGE_TABLE_BASE, crate::mem::Protection::RW);
+
+        let mut l1_tab = mem.view_mut(..);
+        l1_tab.put_u64_le(0x07c1);
+        l1_tab.put_bytes(0, PAGE_TABLE_SIZE - 8);
+
+        let mut code =
+            crate::mem::Memory::alloc(PAGE_TABLE_SIZE).map_at(0x100000, crate::mem::Protection::RX);
+        let mut code = code.view_mut(..);
+        code.put_u32_le(0x910003e0);
+        code.put_u32_le(0xd4200000);
 
         /* construct the CPU state */
-        Self {
-            cpu: id,
-            run: AtomicBool::new(true),
-            vmx: NonNull::new(exit).expect("null VM exit buffer"),
-        }
+        let cpu = Self {
+            vcpu,
+            exit: NonNull::new(exit).expect("null VM exit buffer"),
+        };
+
+        /* setup paging */
+        cpu.write_sys_reg(SysReg::MAIR_EL1, 0xff);
+        cpu.write_sys_reg(SysReg::TCR_EL1, TCR_EL1_INIT);
+        cpu.write_sys_reg(SysReg::TTBR0_EL1, PAGE_TABLE_BASE);
+        cpu.write_sys_reg(SysReg::SCTLR_EL1, SCTLR_EL1_INIT);
+
+        /* initialize the vCPU and set it to EL0 */
+        cpu.write_reg(Reg::PC, 0x100000);
+        cpu.write_reg(Reg::CPSR, 0);
+        cpu.write_sys_reg(SysReg::SP_EL0, sp);
+        cpu.write_sys_reg(SysReg::VBAR_EL1, VM.irq_stubs().as_u64());
+        cpu.write_sys_reg(SysReg::CPACR_EL1, CPACR_FPEN);
+        cpu.write_sys_reg(SysReg::MDSCR_EL1, MDSCR_SS);
+        cpu
     }
 }
 
@@ -331,9 +113,47 @@ define_accessors! {
 }
 
 impl Cpu {
-    fn handle_exception(&self, exc: VmException) {
-        match Exception::from(exc.syndrome.class()) {
+    fn handle_exc(&mut self, exc: VmException) {
+        match Exception::from(exc.syndrome.EC()) {
             Exception::AA64_HVC => {
+                let esr = self.read_sys_reg(SysReg::ESR_EL1);
+                let elr = self.read_sys_reg(SysReg::ELR_EL1);
+                let far = self.read_sys_reg(SysReg::FAR_EL1);
+                self.handle_user_exc(Syndrome(esr), elr.into(), far.into());
+            }
+            Exception::DATA_ABORT => {
+                let pc = self.read_reg(Reg::PC);
+                let iss = DataAbortISS(exc.syndrome.ISS() as u32);
+                self.handle_data_abort(pc.into(), iss, exc.phys_addr);
+            }
+            Exception::SOFTWARE_STEP => {
+                let pc = Uintptr::from(self.read_reg(Reg::PC));
+                // dbg!(&self);
+                // eprintln!("SINGLE_STEP: {}", disasm(pc));
+                eprintln!("SINGLE_STEP: {pc:p}");
+                self.write_reg(Reg::CPSR, self.read_reg(Reg::CPSR) | PSR_SS);
+                if pc >= Uintptr::new(0x100000000) {
+                    dbg!(self);
+                    todo!()
+                }
+                // TODO: remove this
+                // if pc.read::<u32>() == 0xd4000102 {
+                // todo!()
+                // }
+            }
+            ec => {
+                panic!(
+                    "unhandled exception {ec:?}:\nInstruction:\n  {insn:p}\nException: \
+                     {exc:#?}\n{self:#?}",
+                    insn = Uintptr::from(self.read_reg(Reg::PC))
+                );
+            }
+        }
+    }
+
+    fn handle_user_exc(&mut self, esr: Syndrome, elr: Uintptr, far: Uintptr) {
+        match Exception::from(esr.EC()) {
+            Exception::AA64_SVC => {
                 let x0 = self.read_reg(Reg::X0);
                 let x1 = self.read_reg(Reg::X1);
                 let x2 = self.read_reg(Reg::X2);
@@ -341,59 +161,121 @@ impl Cpu {
                 let x4 = self.read_reg(Reg::X4);
                 let x5 = self.read_reg(Reg::X5);
                 let id = self.read_reg(Reg::X16);
-                dbg!(self);
-                let pc = self.read_reg(Reg::PC) - 4;
-                let pc = Uintptr::from(pc);
-                eprintln!(
-                    "instr: {:p} {}",
-                    pc,
-                    disarm64::decoder::decode(pc.read())
-                        .map_or_else(|| "???".to_owned(), |inst| inst.to_string())
-                );
+                dbg!(&self);
+                eprintln!("instr: {}", disasm(elr - 4));
                 let x0 = unsafe { libc::syscall(id as i32, x0, x1, x2, x3, x4, x5) };
                 self.write_reg(Reg::X0, x0 as u64);
-            }
-            Exception::DATA_ABORT => {
-                dbg!(self);
-                eprintln!("DATA_ABORT: {exc:#?}");
-                let pc = self.read_reg(Reg::PC);
-                let pc = Uintptr::from(pc);
-                eprintln!(
-                    "instr: {:p} {}",
-                    pc,
-                    disarm64::decoder::decode(pc.read())
-                        .map_or_else(|| "???".to_owned(), |inst| inst.to_string())
-                );
                 todo!()
             }
-            ec => {
-                dbg!(self);
-                let pc = self.read_reg(Reg::PC);
-                panic!("unhandled exception {ec:?} at 0x{pc:x}: {exc:#?}");
+            Exception::SYS_REG_TRAP => {
+                let iss = SysRegTrapISS(esr.ISS() as u32);
+                self.handle_sysreg_trap(iss);
+                self.write_sys_reg(SysReg::ELR_EL1, elr.as_u64() + 4);
             }
+            ec => {
+                panic!(
+                    "unhandled EL0 exception {ec:?}:\nInstruction: FAR={far:p}\n  \
+                     {insn}\n{self:#?}",
+                    insn = disasm(elr)
+                );
+            }
+        }
+    }
+
+    fn handle_data_abort(&mut self, pc: Uintptr, iss: DataAbortISS, addr: Uintptr) {
+        if addr < COMMPAGE_END && addr >= COMMPAGE_BEGIN {
+            if iss.wnr() != 0 {
+                unimplemented!("write to commpage: {}", disasm(pc));
+            }
+            if iss.isv() != 1 {
+                unimplemented!("DATA_ABORT with !ISS.ISV: {:#?} {}", iss, disasm(pc));
+            }
+            if iss.ar() != 0 {
+                unimplemented!("acquire/release read of commpage: {}", disasm(pc));
+            }
+            let mut data = match (iss.sas(), iss.sse()) {
+                (0b00, 0b1) => addr.read::<i8>() as u64,
+                (0b00, 0b0) => addr.read::<u8>() as u64,
+                (0b01, 0b1) => addr.read::<i16>() as u64,
+                (0b01, 0b0) => addr.read::<u16>() as u64,
+                (0b10, 0b1) => addr.read::<i32>() as u64,
+                (0b10, 0b0) => addr.read::<u32>() as u64,
+                (0b11, 0b1) => addr.read::<i64>() as u64,
+                (0b11, 0b0) => addr.read::<u64>(),
+                _ => unreachable!(),
+            };
+            if iss.sf() == 0 {
+                data &= u32::MAX as u64;
+            }
+            self.write_reg(Reg::from(iss.srt()), data);
+            self.write_reg(Reg::PC, pc.as_u64() + 4);
+        } else {
+            dbg!(&self);
+            eprintln!("instr: {}", disasm(self.read_reg(Reg::PC)));
+            todo!()
+        }
+    }
+
+    fn handle_sysreg_trap(&mut self, iss: SysRegTrapISS) {
+        macro_rules! wrong_sysreg {
+            ($kind:literal) => {
+                panic!(
+                    "unhandled SysReg {ty} to \
+                     \"s{op0}_{op1}_c{crn}_c{crm}_{op2}\"\nInstruction:\n  \
+                     {insn}\nISS={iss:#?}\n{self:#?}",
+                    ty = $kind,
+                    op0 = iss.op0(),
+                    op1 = iss.op1(),
+                    crn = iss.crn(),
+                    crm = iss.crm(),
+                    op2 = iss.op2(),
+                    insn = disasm(self.read_sys_reg(SysReg::ELR_EL1))
+                )
+            };
+        }
+        if iss.dir() == 0 {
+            wrong_sysreg!("write");
+        }
+        macro_rules! read_sys_reg {
+            ($($reg:ident => $id:ident),* $(,)?) => {
+                match iss.sys_reg() {
+                    $(
+                        SysReg::$reg => unsafe {
+                            let mut val = 0u64;
+                            std::arch::asm!(concat!("mrs {}, ", stringify!($id)), out(reg) val);
+                            self.write_reg(Reg::from(iss.rt()), val);
+                        }
+                    )*
+                    _ => wrong_sysreg!("read"),
+                }
+            };
+        }
+        read_sys_reg! {
+            APL_ACNTPCT_EL0 => s3_4_c15_c10_5,
+            APL_ACNTVCT_EL0 => s3_4_c15_c10_6,
         }
     }
 }
 
 impl Cpu {
-    pub fn run(&self) {
-        while self.run.load(Ordering::Acquire) {
-            let vmx = {
-                hv_call!(hv_vcpu_run(self.cpu));
-                unsafe { *self.vmx.as_ref() }
+    pub fn run(&mut self) {
+        loop {
+            let exit = {
+                hv_call!(hv_vcpu_run(self.vcpu));
+                unsafe { *self.exit.as_ref() }
             };
-            match vmx.reason {
+            match exit.reason {
                 HV_EXIT_REASON_CANCELED => break,
-                HV_EXIT_REASON_EXCEPTION => self.handle_exception(vmx.exception.into()),
-                HV_EXIT_REASON_VTIMER_ACTIVATED => todo!("timer: {vmx:#?}"),
+                HV_EXIT_REASON_EXCEPTION => self.handle_exc(exit.exception.into()),
+                HV_EXIT_REASON_VTIMER_ACTIVATED => todo!("timer: {exit:#?}"),
                 reason => panic!("unknown VM exit reason {reason}"),
             }
         }
     }
 }
 
-impl Cpu {
-    fn dump_regs(&self, f: &mut Formatter<'_>) -> FmtResult {
+impl Debug for Cpu {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         macro_rules! r {
             ($name:ident) => {
                 self.read_reg(Reg::$name)
@@ -404,6 +286,7 @@ impl Cpu {
                 self.read_sys_reg(SysReg::$name)
             };
         }
+        writeln!(f, "Debug dump of CPU {}:", self.vcpu)?;
         writeln!(f, "  Generic Registers:")?;
         writeln!(f, "     PC: {:016x}      SP: {:016x}", r!(PC), s!(SP_EL0))?;
         writeln!(f, "     FP: {:016x}      LR: {:016x}", r!(FP), r!(LR))?;
@@ -431,23 +314,14 @@ impl Cpu {
         writeln!(f, "       ELR_EL1: {:016x}", s!(ELR_EL1))?;
         writeln!(f, "       ESR_EL1: {:016x}", s!(ESR_EL1))?;
         writeln!(f, "       FAR_EL1: {:016x}", s!(FAR_EL1))?;
+        writeln!(f, "       PAR_EL1: {:016x}", s!(PAR_EL1))?;
         writeln!(f, "     TPIDR_EL0: {:016x}", s!(TPIDR_EL0))?;
         writeln!(f, "   TPIDRRO_EL0: {:016x}", s!(TPIDRRO_EL0))?;
         writeln!(f, "     TPIDR_EL1: {:016x}", s!(TPIDR_EL1))?;
+        writeln!(f, "     MDSCR_EL1: {:016x}", s!(MDSCR_EL1))?;
+        writeln!(f, "     SCTLR_EL1: {:016x}", s!(SCTLR_EL1))?;
+        writeln!(f, "     TTBR0_EL1: {:016x}", s!(TTBR0_EL1))?;
+        writeln!(f, "     TTBR1_EL1: {:016x}", s!(TTBR1_EL1))?;
         Ok(())
-    }
-}
-
-impl Debug for Cpu {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        writeln!(f, "Debug dump of CPU {}:", self.cpu)?;
-        self.dump_regs(f)?;
-        Ok(())
-    }
-}
-
-impl Default for Cpu {
-    fn default() -> Self {
-        Self::new()
     }
 }

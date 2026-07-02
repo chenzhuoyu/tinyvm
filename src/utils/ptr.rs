@@ -49,6 +49,16 @@ impl Uintptr {
     pub const fn as_ptr<T>(self) -> *mut T {
         self.0 as *mut T
     }
+
+    #[inline]
+    pub const fn as_ref<'p, T>(self) -> &'p T {
+        unsafe { &*self.as_ptr() }
+    }
+
+    #[inline]
+    pub const fn as_mut<'p, T>(self) -> &'p mut T {
+        unsafe { &mut *self.as_ptr() }
+    }
 }
 
 impl Uintptr {
