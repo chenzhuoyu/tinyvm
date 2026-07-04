@@ -152,8 +152,8 @@ impl Image {
                     if seg.name() != b"__PAGEZERO" {
                         min_addr = min_addr.min(seg.vmaddr.value());
                         max_addr = max_addr.max(seg.vmaddr.value() + seg.vmsize.value());
-                        segments.push(seg);
                     }
+                    segments.push(seg);
                 }
                 LoadCommandVariant::EntryPoint(cmd) => {
                     if entry_point.is_none() {
@@ -183,16 +183,22 @@ impl Image {
 
         /* load the segments */
         for &seg in &segments {
-            let vma_addr = Uintptr::new(seg.vmaddr.usize() + slide);
-            let vma_next = vma_addr + seg.vmsize.usize();
+            let mut vma_addr = Uintptr::new(seg.vmaddr.usize());
+            let mut vma_next = vma_addr + seg.vmsize.usize();
 
-            /* copy content into place */
-            unsafe {
-                libc::memcpy(
-                    vma_addr.as_ptr(),
-                    file.as_ptr().add(seg.fileoff.usize()) as *const libc::c_void,
-                    seg.filesize.usize(),
-                );
+            /* slide and load the segment into memory, except "__PAGEZERO" */
+            if seg.name() != b"__PAGEZERO" {
+                vma_addr += slide;
+                vma_next += slide;
+
+                /* copy content into place */
+                unsafe {
+                    libc::memcpy(
+                        vma_addr.as_ptr(),
+                        file.as_ptr().add(seg.fileoff.usize()) as *const libc::c_void,
+                        seg.filesize.usize(),
+                    );
+                }
             }
 
             /* log the segment */
@@ -206,24 +212,22 @@ impl Image {
             );
         }
 
-        /* the following logic is for dyld only */
-        if path.as_path() != Self::DYLD_PATH {
-            return Ok(Image {
-                data: image,
-                entry: Uintptr::NIL,
-            });
-        }
-
         /* set the segments with correct protection */
         for &seg in &segments {
-            if let Some(prot) = Protection::from_bits(seg.initprot.value() as u64) {
-                let size = seg.vmsize.usize();
-                let addr = seg.vmaddr.usize() + slide;
-                let offs = addr - image.addr().addr();
-                image.view(offs..offs + size).protect(prot);
-                Self::notify_load_handler(addr.into(), size, prot);
+            if seg.name() != b"__PAGEZERO" {
+                if let Some(prot) = Protection::from_bits(seg.initprot.value() as u64) {
+                    let size = seg.vmsize.usize();
+                    let addr = seg.vmaddr.usize() + slide;
+                    let offs = addr - image.addr().addr();
+                    image.view(offs..offs + size).protect(prot);
+                    Self::notify_load_handler(addr.into(), size, prot);
+                } else {
+                    return Err(anyhow!("invalid initprot: 0x{:x}", seg.initprot.value()));
+                }
             } else {
-                return Err(anyhow!("invalid initprot: 0x{:x}", seg.initprot.value()));
+                assert_eq!(seg.vmaddr.value(), 0, "__PAGEZERO not at addr 0");
+                assert_eq!(seg.initprot.value(), 0, "__PAGEZERO is not guared");
+                Self::notify_load_handler(Uintptr::NIL, seg.vmsize.usize(), Protection::NONE);
             }
         }
 

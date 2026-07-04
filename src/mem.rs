@@ -10,7 +10,7 @@ use bytes::{Buf, BufMut, buf::UninitSlice};
 use ffi::{HV_MEMORY_EXEC, HV_MEMORY_READ, HV_MEMORY_WRITE};
 
 #[cfg(target_arch = "aarch64")]
-use crate::aarch64::{ffi, vm::VM};
+use crate::aarch64::{ffi, vm::Vm};
 use crate::utils::{ptr::Uintptr, size::is_page_aligned};
 #[cfg(target_arch = "x86_64")]
 use crate::x86_64::ffi;
@@ -57,7 +57,7 @@ impl<T: Addressable> MemoryExt for T {
     fn protect(&self, prot: Protection) {
         assert!(is_page_aligned(self.size()));
         assert!(is_page_aligned(self.addr().addr()));
-        VM.protect(self.addr(), self.size(), prot);
+        Vm::protect(self.addr(), self.size(), prot);
     }
 }
 
@@ -221,7 +221,7 @@ impl UnmappedMemory {
     pub fn map_at(mut self, base: u64, prot: Protection) -> Memory {
         let size = self.size;
         let addr = std::mem::replace(&mut self.addr, Uintptr::NIL);
-        VM.map(addr, base, size, prot);
+        Vm::map(addr, base, size, prot);
         Memory { addr, size }
     }
 }
@@ -229,7 +229,7 @@ impl UnmappedMemory {
 impl Drop for UnmappedMemory {
     fn drop(&mut self) {
         if !self.addr.is_nil() {
-            VM.dealloc(self.addr, self.size);
+            Vm::dealloc(self.addr, self.size);
         }
     }
 }
@@ -249,7 +249,7 @@ pub struct Memory {
 impl Memory {
     pub fn alloc(size: usize) -> UnmappedMemory {
         let size = unsafe { (size + libc::vm_page_size - 1) & !(libc::vm_page_size - 1) };
-        let addr = VM.alloc(size);
+        let addr = Vm::alloc(size);
         UnmappedMemory { addr, size }
     }
 }
@@ -268,8 +268,8 @@ impl Memory {
 
 impl Drop for Memory {
     fn drop(&mut self) {
-        VM.unmap(self.addr.as_u64(), self.size);
-        VM.dealloc(self.addr, self.size);
+        Vm::unmap(self.addr.as_u64(), self.size);
+        Vm::dealloc(self.addr, self.size);
     }
 }
 

@@ -1,9 +1,6 @@
 use parking_lot::Mutex;
 
-use super::{
-    regs::{SCTLR_EL1, TCR_EL1},
-    vm::Vm,
-};
+use super::regs::{SCTLR_EL1, TCR_EL1};
 use crate::{
     macros::define_bit_field,
     mem::{Addressable, Memory, Protection},
@@ -257,17 +254,20 @@ impl PageTable {
     }
 }
 
-impl Vm {
+impl PageTable {
     #[inline]
-    pub fn page_table(&self) -> Uintptr {
-        unsafe { Uintptr::from(PAGE_TABLE) }
+    pub fn base() -> Uintptr {
+        unsafe {
+            assert!(!PAGE_TABLE.is_null(), "VM is not initialized");
+            Uintptr::from(PAGE_TABLE)
+        }
     }
 
     #[inline]
-    pub fn register_pages(&self, addr: Uintptr, size: usize, prot: Protection) {
+    pub fn register(addr: Uintptr, size: usize, prot: Protection) {
         unsafe {
             let _m = PAGE_LOCK.lock();
-            assert!(!PAGE_TABLE.is_null());
+            assert!(!PAGE_TABLE.is_null(), "VM is not initialized");
             (*PAGE_TABLE).add_region(addr, size, prot);
         }
     }

@@ -5,9 +5,9 @@ use std::{
 
 use super::{
     ffi::*,
-    paging::{MAIR_EL1_INIT, SCTLR_EL1_INIT, TCR_EL1_INIT},
+    paging::{MAIR_EL1_INIT, PageTable, SCTLR_EL1_INIT, TCR_EL1_INIT},
     regs::*,
-    vm::VM,
+    vm::Vm,
 };
 use crate::{
     hv_call,
@@ -18,16 +18,39 @@ use crate::{
 pub(super) const COMMPAGE_END: Uintptr = Uintptr::new(0x1000000000);
 pub(super) const COMMPAGE_BEGIN: Uintptr = Uintptr::new(0xfffffc000);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 struct VmException {
     syndrome: Syndrome,
+    virt_addr: Uintptr,
     phys_addr: Uintptr,
+}
+
+impl Debug for VmException {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.debug_struct("VmException")
+            .field_with("syndrome", |f| {
+                if f.alternate() {
+                    write!(
+                        f,
+                        "{:?} :: {:#?}",
+                        Exception::from(self.syndrome.EC()),
+                        self.syndrome
+                    )
+                } else {
+                    Debug::fmt(&self.syndrome, f)
+                }
+            })
+            .field("virt_addr", &self.virt_addr)
+            .field("phys_addr", &self.phys_addr)
+            .finish()
+    }
 }
 
 impl From<hv_vcpu_exit_exception_t> for VmException {
     fn from(exc: hv_vcpu_exit_exception_t) -> Self {
         Self {
             syndrome: Syndrome(exc.syndrome),
+            virt_addr: exc.virtual_address.into(),
             phys_addr: exc.physical_address.into(),
         }
     }
@@ -63,16 +86,16 @@ impl Cpu {
         /* setup paging */
         cpu.write_sys_reg(SysReg::TCR_EL1, TCR_EL1_INIT);
         cpu.write_sys_reg(SysReg::MAIR_EL1, MAIR_EL1_INIT);
-        cpu.write_sys_reg(SysReg::TTBR0_EL1, VM.page_table().as_u64());
+        cpu.write_sys_reg(SysReg::TTBR0_EL1, PageTable::base().as_u64());
         cpu.write_sys_reg(SysReg::SCTLR_EL1, SCTLR_EL1_INIT);
 
         /* initialize the vCPU and set it to EL0 */
         cpu.write_reg(Reg::PC, pc);
         cpu.write_reg(Reg::CPSR, 0);
         cpu.write_sys_reg(SysReg::SP_EL0, sp);
-        cpu.write_sys_reg(SysReg::VBAR_EL1, VM.irq_stubs().as_u64());
+        cpu.write_sys_reg(SysReg::VBAR_EL1, Vm::irq_stubs().as_u64());
         cpu.write_sys_reg(SysReg::CPACR_EL1, CPACR_FPEN);
-        cpu.write_sys_reg(SysReg::MDSCR_EL1, MDSCR_SS);
+        // cpu.write_sys_reg(SysReg::MDSCR_EL1, MDSCR_SS);
         cpu
     }
 }
@@ -100,9 +123,6 @@ impl Cpu {
                 let pc = Uintptr::from(self.read_reg(Reg::PC));
                 eprintln!("SINGLE_STEP: {}", disasm(pc));
                 self.write_reg(Reg::CPSR, self.read_reg(Reg::CPSR) | PSR_SS);
-                if pc.read::<u32>() == 0xd4000082 {
-                    todo!("{self:#?}");
-                }
             }
             ec => {
                 panic!(
@@ -117,18 +137,37 @@ impl Cpu {
     fn handle_user_exc(&mut self, esr: Syndrome, elr: Uintptr, far: Uintptr) {
         match Exception::from(esr.EC()) {
             Exception::AA64_SVC => {
-                let x0 = self.read_reg(Reg::X0);
-                let x1 = self.read_reg(Reg::X1);
+                let mut x0 = self.read_reg(Reg::X0);
+                let mut x1 = self.read_reg(Reg::X1);
                 let x2 = self.read_reg(Reg::X2);
                 let x3 = self.read_reg(Reg::X3);
                 let x4 = self.read_reg(Reg::X4);
                 let x5 = self.read_reg(Reg::X5);
+                let x6 = self.read_reg(Reg::X6);
+                let x7 = self.read_reg(Reg::X7);
                 let id = self.read_reg(Reg::X16);
-                dbg!(&self);
-                eprintln!("instr: {}", disasm(elr - 4));
-                let x0 = unsafe { libc::syscall(id as i32, x0, x1, x2, x3, x4, x5) };
-                self.write_reg(Reg::X0, x0 as u64);
-                todo!()
+                eprintln!(
+                    "SYSCALL: id={id} x0=0x{x0:x} x1=0x{x1:x} x2=0x{x2:x} x3=0x{x3:x} x4=0x{x4:x} \
+                     x5=0x{x5:x} x6=0x{x6:x} x7=0x{x7:x}",
+                    id = id as i64
+                );
+                unsafe {
+                    std::arch::asm!(
+                        "svc #0x80",
+                        inout("x0") x0,
+                        inout("x1") x1,
+                        in("x2") x2,
+                        in("x3") x3,
+                        in("x4") x4,
+                        in("x5") x5,
+                        in("x6") x6,
+                        in("x7") x7,
+                        in("x16") id,
+                    );
+                }
+                self.write_reg(Reg::X0, x0);
+                self.write_reg(Reg::X1, x1);
+                eprintln!("   => x0=0x{x0:x} x1=0x{x1:x}");
             }
             Exception::SYS_REG_TRAP => {
                 let iss = SysRegTrapISS(esr.ISS() as u32);

@@ -5,7 +5,8 @@ pub mod regs;
 pub mod vm;
 
 use cpu::{COMMPAGE_BEGIN, COMMPAGE_END, Cpu};
-use vm::VM;
+use paging::PageTable;
+use vm::Vm;
 
 use crate::{
     Unit,
@@ -36,19 +37,12 @@ struct InitStackFrame {
 }
 
 pub fn vm_exec() -> Unit {
+    Vm::init();
+    Image::set_load_handler(PageTable::register);
+
+    /* create the stack */
     let stack = Memory::alloc(INIT_STACK_SIZE).map(Protection::RW);
     let frame = stack.addr().as_mut::<InitStackFrame>();
-
-    /* mark the Commpage as read-only in page table */
-    VM.register_pages(
-        COMMPAGE_BEGIN,
-        COMMPAGE_END - COMMPAGE_BEGIN,
-        Protection::READ,
-    );
-
-    /* register the stack into page table, and bind the load handler */
-    VM.register_pages(stack.addr(), stack.size(), Protection::RW);
-    Image::set_load_handler(|addr, size, prot| VM.register_pages(addr, size, prot));
 
     /* load dyld and the target image */
     let dyld = Image::dyld().entry.as_u64();
@@ -63,7 +57,15 @@ pub fn vm_exec() -> Unit {
     frame.args.args[3] = Sz::from(c"executable_path=/bin/ls");
     frame.args.args[4] = Sz::NIL;
 
-    /* initialize the vCPU and set it to EL0, and start the vCPU */
+    /* mark the Commpage as read-only in page table */
+    PageTable::register(
+        COMMPAGE_BEGIN,
+        COMMPAGE_END - COMMPAGE_BEGIN,
+        Protection::READ,
+    );
+
+    /* mark the stack as read-write, and start the vCPU */
+    PageTable::register(stack.addr(), stack.size(), Protection::RW);
     Cpu::new(dyld, &raw const frame.args as u64).run();
     Ok(())
 }
