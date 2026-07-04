@@ -117,6 +117,19 @@ macro_rules! define_bit_field {
 
                 #[allow(dead_code)]
                 impl $name {
+                    #[inline]
+                    pub const fn builder() -> [< $name Builder >] {
+                        $name(0).into_builder()
+                    }
+
+                    #[inline]
+                    pub const fn into_builder(self) -> [< $name Builder >] {
+                        [< $name Builder >](self)
+                    }
+                }
+
+                #[allow(dead_code)]
+                impl $name {
                     #[doc = concat!("Get the underlying value of ", stringify!($name))]
                     #[inline(always)]
                     pub const fn value(self) -> $repr {
@@ -141,19 +154,9 @@ macro_rules! define_bit_field {
                         #[allow(non_camel_case_types)]
                         #[allow(clippy::upper_case_acronyms)]
                         pub const fn [< set_ $field >](&mut self, value: $repr) {
-                            *self = self.[< with_ $field >](value);
-                        }
-
-                        $(#[doc = $doc])*
-                        #[inline]
-                        #[allow(non_snake_case)]
-                        #[allow(non_camel_case_types)]
-                        #[allow(clippy::upper_case_acronyms)]
-                        pub const fn [< with_ $field >](mut self, value: $repr) -> Self {
                             assert!(value & !((1 << $nbits) - 1) == 0);
                             self.0 &= !(((1 << $nbits) - 1) << Self::BV[${index()}]);
                             self.0 |= (value & ((1 << $nbits) - 1)) << Self::BV[${index()}];
-                            self
                         }
                     )+
                 }
@@ -171,6 +174,36 @@ macro_rules! define_bit_field {
                         )+
                             .finish()
                     }
+                }
+
+                #[repr(transparent)]
+                #[allow(non_camel_case_types)]
+                #[allow(clippy::upper_case_acronyms)]
+                #[derive(Clone, Copy)]
+                $vis struct [< $name Builder >]($name);
+
+                #[allow(dead_code)]
+                impl [< $name Builder >] {
+                    #[doc = concat!("Build the final ", stringify!($name))]
+                    #[inline]
+                    pub const fn build(self) -> $name {
+                        self.0
+                    }
+                }
+
+                #[allow(dead_code)]
+                impl [< $name Builder >] {
+                    $(
+                        $(#[doc = $doc])*
+                        #[inline]
+                        #[allow(non_snake_case)]
+                        #[allow(non_camel_case_types)]
+                        #[allow(clippy::upper_case_acronyms)]
+                        pub const fn $field(mut self, value: $repr) -> Self {
+                            self.0.[< set_ $field >](value);
+                            self
+                        }
+                    )*
                 }
             )*
         }

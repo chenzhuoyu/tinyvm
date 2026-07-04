@@ -1,13 +1,12 @@
 use std::{
-    borrow::Cow,
-    ffi::{CString, OsStr},
+    ffi::OsStr,
     fmt::{Debug, Formatter, Result as FmtResult},
     fs::File,
     io::Read,
     mem::MaybeUninit,
-    os::unix::{ffi::OsStrExt, fs::MetadataExt},
+    os::unix::ffi::OsStrExt,
     path::Path,
-    sync::LazyLock,
+    sync::OnceLock,
 };
 
 use anyhow::{anyhow, ensure};
@@ -19,6 +18,7 @@ use object::{
     },
     read::macho::{FatArch, LoadCommandVariant, MachHeader, Segment},
 };
+use parking_lot::Mutex;
 
 use crate::{
     Maybe,
@@ -27,34 +27,19 @@ use crate::{
         io::{MappedFile, MemoryIo, ValueExt},
         path::LibPathNormalizeExt,
         ptr::Uintptr,
-        str::Sz,
     },
 };
 
-#[repr(C)]
-#[derive(Debug)]
-struct DyldImageInfo {
-    addr: Uintptr,
-    path: Sz,
-    time: i64,
-}
-
-static LLDB_IMAGE_NOTIFIER: LazyLock<
-    Option<unsafe extern "C" fn(mode: u32, count: usize, info: *const DyldImageInfo)>,
-> = LazyLock::new(|| unsafe {
-    std::mem::transmute(libc::dlsym(
-        libc::dlopen(c"/usr/lib/dyld".as_ptr(), libc::RTLD_LAZY),
-        c"lldb_image_notifier".as_ptr(),
-    ))
-});
+type LoadFn = Box<dyn FnMut(Uintptr, usize, Protection) + Send>;
+type LoadHandler = Option<LoadFn>;
 
 pub struct Image {
     pub data: Memory,
     pub entry: Uintptr,
 }
 
-pub static DYLD: LazyLock<Image> =
-    LazyLock::new(|| Image::load(Image::DYLD_PATH).expect("cannot load dyld"));
+static DYLD: OnceLock<Image> = OnceLock::new();
+static LDFN: Mutex<LoadHandler> = Mutex::new(None);
 
 impl Image {
     const CPU_TYPE: u32 = CPU_TYPE_ARM64;
@@ -106,9 +91,25 @@ impl Image {
         }
         Err(anyhow!("cannot find valid architecture in fat binary"))
     }
+
+    fn notify_load_handler(addr: Uintptr, size: usize, prot: Protection) {
+        if let Some(handler) = LDFN.lock().as_deref_mut() {
+            handler(addr, size, prot);
+        }
+    }
 }
 
 impl Image {
+    pub fn set_load_handler(f: impl FnMut(Uintptr, usize, Protection) + Send + 'static) {
+        *LDFN.lock() = Some(Box::new(f));
+    }
+}
+
+impl Image {
+    pub fn dyld() -> &'static Self {
+        DYLD.get_or_init(|| Self::load(Image::DYLD_PATH).expect("cannot load dyld"))
+    }
+
     pub fn load<P: AsRef<Path>>(path: P) -> Maybe<Self> {
         let path = path.as_ref().normalize()?;
         let file = Self::map_image(&path)?;
@@ -205,20 +206,6 @@ impl Image {
             );
         }
 
-        /* notify the debugger, if present */
-        if let Some(lldb_image_notifier) = *LLDB_IMAGE_NOTIFIER {
-            let name = CString::new(path.as_os_str().as_bytes())
-                .map_or(Cow::Borrowed(c"(???)"), Cow::Owned);
-            let info = DyldImageInfo {
-                addr: image.addr(),
-                path: Sz::from(name.as_ptr()),
-                time: path.metadata().map_or(0, |m| m.mtime()),
-            };
-            unsafe {
-                lldb_image_notifier(0, 1, &raw const info);
-            }
-        }
-
         /* the following logic is for dyld only */
         if path.as_path() != Self::DYLD_PATH {
             return Ok(Image {
@@ -234,6 +221,7 @@ impl Image {
                 let addr = seg.vmaddr.usize() + slide;
                 let offs = addr - image.addr().addr();
                 image.view(offs..offs + size).protect(prot);
+                Self::notify_load_handler(addr.into(), size, prot);
             } else {
                 return Err(anyhow!("invalid initprot: 0x{:x}", seg.initprot.value()));
             }

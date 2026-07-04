@@ -37,6 +37,11 @@ impl Uintptr {
     pub const fn is_nil(self) -> bool {
         self.0 == 0
     }
+
+    #[inline]
+    pub const fn is_aligned_to(self, size: usize) -> bool {
+        self.0.is_multiple_of(size)
+    }
 }
 
 impl Uintptr {

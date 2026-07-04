@@ -3,17 +3,20 @@ use std::{
     ptr::NonNull,
 };
 
-use bytes::BufMut;
-
-use super::{ffi::*, regs::*, vm::VM};
+use super::{
+    ffi::*,
+    paging::{MAIR_EL1_INIT, SCTLR_EL1_INIT, TCR_EL1_INIT},
+    regs::*,
+    vm::VM,
+};
 use crate::{
     hv_call,
     macros::define_accessors,
     utils::{disasm::disasm, ptr::Uintptr},
 };
 
-const COMMPAGE_END: Uintptr = Uintptr::new(0x1000000000);
-const COMMPAGE_BEGIN: Uintptr = Uintptr::new(0xfffffc000);
+pub(super) const COMMPAGE_END: Uintptr = Uintptr::new(0x1000000000);
+pub(super) const COMMPAGE_BEGIN: Uintptr = Uintptr::new(0xfffffc000);
 
 #[derive(Debug, Clone, Copy)]
 struct VmException {
@@ -35,24 +38,6 @@ pub struct Cpu {
     exit: NonNull<hv_vcpu_exit_t>,
 }
 
-const TCR_EL1_INIT: u64 = TCR_EL1(0)
-    .with_IPS(0b101) // 48-bit IPA
-    .with_EPD1(1) // Disable TTBR1_EL1
-    .with_TG0(0b10) // Page size is 16 KiB
-    .with_SH0(0b11) // Inner sharable
-    .with_ORGN0(0b01) // Normal memory, Outer Write-Back Read-Allocate Write-Allocate Cacheable.
-    .with_IRGN0(0b01) // Normal memory, Inner Write-Back Read-Allocate Write-Allocate Cacheable.
-    .with_T0SZ(24) // 40-bit virtual address (1 TiB)
-    .value();
-
-const SCTLR_EL1_INIT: u64 = SCTLR_EL1(0)
-    .with_I(1) // Enable instruction cache
-    .with_SED(1) // Disbale SETEND instruction
-    .with_ITD(1) // Disable IT instruction
-    .with_C(1) // Enable data cache
-    .with_M(1) // Enable MMU
-    .value();
-
 impl Cpu {
     pub fn new(pc: u64, sp: u64) -> Self {
         let mut vcpu = 0u64;
@@ -69,21 +54,6 @@ impl Cpu {
         hv_call!(hv_vcpu_set_trap_debug_exceptions(vcpu, true));
         hv_call!(hv_vcpu_set_trap_debug_reg_accesses(vcpu, true));
 
-        const PAGE_TABLE_BASE: u64 = 0x40000000;
-        const PAGE_TABLE_SIZE: usize = 16384;
-        let mut mem = crate::mem::Memory::alloc(PAGE_TABLE_SIZE)
-            .map_at(PAGE_TABLE_BASE, crate::mem::Protection::RW);
-
-        let mut l1_tab = mem.view_mut(..);
-        l1_tab.put_u64_le(0x07c1);
-        l1_tab.put_bytes(0, PAGE_TABLE_SIZE - 8);
-
-        let mut code =
-            crate::mem::Memory::alloc(PAGE_TABLE_SIZE).map_at(0x100000, crate::mem::Protection::RX);
-        let mut code = code.view_mut(..);
-        code.put_u32_le(0x910003e0);
-        code.put_u32_le(0xd4200000);
-
         /* construct the CPU state */
         let cpu = Self {
             vcpu,
@@ -91,13 +61,13 @@ impl Cpu {
         };
 
         /* setup paging */
-        cpu.write_sys_reg(SysReg::MAIR_EL1, 0xff);
         cpu.write_sys_reg(SysReg::TCR_EL1, TCR_EL1_INIT);
-        cpu.write_sys_reg(SysReg::TTBR0_EL1, PAGE_TABLE_BASE);
+        cpu.write_sys_reg(SysReg::MAIR_EL1, MAIR_EL1_INIT);
+        cpu.write_sys_reg(SysReg::TTBR0_EL1, VM.page_table().as_u64());
         cpu.write_sys_reg(SysReg::SCTLR_EL1, SCTLR_EL1_INIT);
 
         /* initialize the vCPU and set it to EL0 */
-        cpu.write_reg(Reg::PC, 0x100000);
+        cpu.write_reg(Reg::PC, pc);
         cpu.write_reg(Reg::CPSR, 0);
         cpu.write_sys_reg(SysReg::SP_EL0, sp);
         cpu.write_sys_reg(SysReg::VBAR_EL1, VM.irq_stubs().as_u64());
@@ -128,18 +98,11 @@ impl Cpu {
             }
             Exception::SOFTWARE_STEP => {
                 let pc = Uintptr::from(self.read_reg(Reg::PC));
-                // dbg!(&self);
-                // eprintln!("SINGLE_STEP: {}", disasm(pc));
-                eprintln!("SINGLE_STEP: {pc:p}");
+                eprintln!("SINGLE_STEP: {}", disasm(pc));
                 self.write_reg(Reg::CPSR, self.read_reg(Reg::CPSR) | PSR_SS);
-                if pc >= Uintptr::new(0x100000000) {
-                    dbg!(self);
-                    todo!()
+                if pc.read::<u32>() == 0xd4000082 {
+                    todo!("{self:#?}");
                 }
-                // TODO: remove this
-                // if pc.read::<u32>() == 0xd4000102 {
-                // todo!()
-                // }
             }
             ec => {
                 panic!(

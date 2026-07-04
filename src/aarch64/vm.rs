@@ -2,6 +2,7 @@ use std::{fmt::Debug, sync::LazyLock};
 
 use super::ffi::*;
 use crate::{
+    aarch64::paging::PageTable,
     hv_call,
     mem::Protection,
     utils::{ptr::Uintptr, size::align_to_page},
@@ -36,15 +37,18 @@ pub static VM: LazyLock<Vm> = LazyLock::new(|| {
     hv_call!(hv_vm_config_get_default_ipa_size(&raw mut ipa_bits));
     hv_call!(hv_vm_config_set_el2_enabled(cfg, false));
     hv_call!(hv_vm_create(cfg));
-    Vm::new(ipa_bits, max_vcpu_count)
+    Vm::new(ipa_bits, max_vcpu_count as usize)
 });
 
 impl Vm {
     #[inline]
-    fn new(ipa_bits: u32, max_vcpu_count: u32) -> Self {
+    fn new(ipa_bits: u32, max_vcpu_count: usize) -> Self {
         let stub = irq_stubs();
         let size = align_to_page(stub.len());
+
+        /* base address of IRQ stub and L1 page table */
         let mut code = std::ptr::null_mut();
+        let mut ptable = std::ptr::null_mut();
 
         /* allocate, copy & map IRQ stubs */
         unsafe {
@@ -53,12 +57,37 @@ impl Vm {
             hv_call!(hv_vm_map(code, code as u64, size, Protection::RX.bits()));
         }
 
+        /* allocate L1 page table */
+        hv_call!(hv_vm_allocate(
+            &raw mut ptable,
+            libc::vm_page_size,
+            HV_ALLOCATE_DEFAULT
+        ));
+
+        /* map the L1 page table into guest space */
+        hv_call!(hv_vm_map(
+            ptable,
+            ptable as u64,
+            size,
+            Protection::RW.bits()
+        ));
+
+        /* initialize the page registry */
+        let irq_stubs = {
+            PageTable::init(Uintptr::from(ptable));
+            Uintptr::from(code)
+        };
+
         /* construct the VM */
-        Self {
+        let instance = Self {
             ipa_bits,
-            irq_stubs: Uintptr::from(code),
-            max_vcpu_count: max_vcpu_count as usize,
-        }
+            irq_stubs,
+            max_vcpu_count,
+        };
+
+        /* register the IRQ stubs into page table */
+        instance.register_pages(irq_stubs, size, Protection::RX);
+        instance
     }
 }
 

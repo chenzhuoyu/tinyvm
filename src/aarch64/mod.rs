@@ -1,13 +1,15 @@
 pub mod cpu;
 pub mod ffi;
+pub mod paging;
 pub mod regs;
 pub mod vm;
 
-use cpu::Cpu;
+use cpu::{COMMPAGE_BEGIN, COMMPAGE_END, Cpu};
+use vm::VM;
 
 use crate::{
     Unit,
-    image::{DYLD, Image},
+    image::Image,
     mem::{Addressable, Memory, Protection},
     utils::{ptr::Uintptr, str::Sz},
 };
@@ -37,8 +39,22 @@ pub fn vm_exec() -> Unit {
     let stack = Memory::alloc(INIT_STACK_SIZE).map(Protection::RW);
     let frame = stack.addr().as_mut::<InitStackFrame>();
 
+    /* mark the Commpage as read-only in page table */
+    VM.register_pages(
+        COMMPAGE_BEGIN,
+        COMMPAGE_END - COMMPAGE_BEGIN,
+        Protection::READ,
+    );
+
+    /* register the stack into page table, and bind the load handler */
+    VM.register_pages(stack.addr(), stack.size(), Protection::RW);
+    Image::set_load_handler(|addr, size, prot| VM.register_pages(addr, size, prot));
+
+    /* load dyld and the target image */
+    let dyld = Image::dyld().entry.as_u64();
+    let image = Image::load("/bin/ls")?; // TODO: load actual image
+
     /* construct the initial stack frame */
-    let image = Image::load("/bin/ls")?;
     frame.args.main = image.entry;
     frame.args.argc = 1;
     frame.args.args[0] = Sz::from(c"ls");
@@ -48,6 +64,6 @@ pub fn vm_exec() -> Unit {
     frame.args.args[4] = Sz::NIL;
 
     /* initialize the vCPU and set it to EL0, and start the vCPU */
-    Cpu::new(DYLD.entry.as_u64(), &raw const frame.args as u64).run();
+    Cpu::new(dyld, &raw const frame.args as u64).run();
     Ok(())
 }

@@ -16,7 +16,7 @@ use crate::utils::{ptr::Uintptr, size::is_page_aligned};
 use crate::x86_64::ffi;
 
 bitflags::bitflags! {
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Protection : u64 {
         const EXEC  = HV_MEMORY_EXEC;
         const READ  = HV_MEMORY_READ;
@@ -27,6 +27,7 @@ bitflags::bitflags! {
 impl Protection {
     pub const RX: Self = Self::READ.union(Self::EXEC);
     pub const RW: Self = Self::READ.union(Self::WRITE);
+    pub const NONE: Self = Self::empty();
 }
 
 impl Debug for Protection {
