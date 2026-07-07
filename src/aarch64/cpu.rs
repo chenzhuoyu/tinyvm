@@ -7,6 +7,7 @@ use super::{
     ffi::*,
     paging::{MAIR_EL1_INIT, PageTable, SCTLR_EL1_INIT, TCR_EL1_INIT},
     regs::*,
+    syscall::Syscall,
     vm::Vm,
 };
 use crate::{
@@ -17,6 +18,9 @@ use crate::{
 
 pub(super) const COMMPAGE_END: Uintptr = Uintptr::new(0x1000000000);
 pub(super) const COMMPAGE_BEGIN: Uintptr = Uintptr::new(0xfffffc000);
+
+pub(super) const COMMPAGE_RO_END: Uintptr = Uintptr::new(0xfffff8000);
+pub(super) const COMMPAGE_RO_BEGIN: Uintptr = Uintptr::new(0xfffff4000);
 
 #[derive(Clone, Copy)]
 struct VmException {
@@ -73,7 +77,7 @@ impl Cpu {
             hv_vcpu_config_create()
         ));
 
-        /* initialize the vCPU */
+        /* trap all debug access to vCPU from guest */
         hv_call!(hv_vcpu_set_trap_debug_exceptions(vcpu, true));
         hv_call!(hv_vcpu_set_trap_debug_reg_accesses(vcpu, true));
 
@@ -111,8 +115,7 @@ impl Cpu {
             Exception::AA64_HVC => {
                 let esr = self.read_sys_reg(SysReg::ESR_EL1);
                 let elr = self.read_sys_reg(SysReg::ELR_EL1);
-                let far = self.read_sys_reg(SysReg::FAR_EL1);
-                self.handle_user_exc(Syndrome(esr), elr.into(), far.into());
+                self.handle_user_exc(Syndrome(esr), elr.into());
             }
             Exception::DATA_ABORT => {
                 let pc = self.read_reg(Reg::PC);
@@ -122,7 +125,7 @@ impl Cpu {
             Exception::SOFTWARE_STEP => {
                 let pc = Uintptr::from(self.read_reg(Reg::PC));
                 eprintln!("SINGLE_STEP: {}", disasm(pc));
-                self.write_reg(Reg::CPSR, self.read_reg(Reg::CPSR) | PSR_SS);
+                self.write_reg(Reg::CPSR, self.read_reg(Reg::CPSR) | PSTATE_SS);
             }
             ec => {
                 panic!(
@@ -134,40 +137,12 @@ impl Cpu {
         }
     }
 
-    fn handle_user_exc(&mut self, esr: Syndrome, elr: Uintptr, far: Uintptr) {
+    fn handle_user_exc(&mut self, esr: Syndrome, elr: Uintptr) {
         match Exception::from(esr.EC()) {
             Exception::AA64_SVC => {
-                let mut x0 = self.read_reg(Reg::X0);
-                let mut x1 = self.read_reg(Reg::X1);
-                let x2 = self.read_reg(Reg::X2);
-                let x3 = self.read_reg(Reg::X3);
-                let x4 = self.read_reg(Reg::X4);
-                let x5 = self.read_reg(Reg::X5);
-                let x6 = self.read_reg(Reg::X6);
-                let x7 = self.read_reg(Reg::X7);
-                let id = self.read_reg(Reg::X16);
-                eprintln!(
-                    "SYSCALL: id={id} x0=0x{x0:x} x1=0x{x1:x} x2=0x{x2:x} x3=0x{x3:x} x4=0x{x4:x} \
-                     x5=0x{x5:x} x6=0x{x6:x} x7=0x{x7:x}",
-                    id = id as i64
-                );
-                unsafe {
-                    std::arch::asm!(
-                        "svc #0x80",
-                        inout("x0") x0,
-                        inout("x1") x1,
-                        in("x2") x2,
-                        in("x3") x3,
-                        in("x4") x4,
-                        in("x5") x5,
-                        in("x6") x6,
-                        in("x7") x7,
-                        in("x16") id,
-                    );
-                }
-                self.write_reg(Reg::X0, x0);
-                self.write_reg(Reg::X1, x1);
-                eprintln!("   => x0=0x{x0:x} x1=0x{x1:x}");
+                let mut syscall = Syscall::read(self);
+                syscall.dispatch();
+                syscall.finalize();
             }
             Exception::SYS_REG_TRAP => {
                 let iss = SysRegTrapISS(esr.ISS() as u32);
@@ -176,8 +151,7 @@ impl Cpu {
             }
             ec => {
                 panic!(
-                    "unhandled EL0 exception {ec:?}:\nInstruction: FAR={far:p}\n  \
-                     {insn}\n{self:#?}",
+                    "unhandled EL0 exception {ec:?}:\nInstruction:\n  {insn}\n{self:#?}",
                     insn = disasm(elr)
                 );
             }
@@ -185,7 +159,9 @@ impl Cpu {
     }
 
     fn handle_data_abort(&mut self, pc: Uintptr, iss: DataAbortISS, addr: Uintptr) {
-        if addr < COMMPAGE_END && addr >= COMMPAGE_BEGIN {
+        if addr < COMMPAGE_END && addr >= COMMPAGE_BEGIN
+            || addr < COMMPAGE_RO_END && addr >= COMMPAGE_RO_BEGIN
+        {
             if iss.wnr() != 0 {
                 unimplemented!("write to commpage: {}", disasm(pc));
             }

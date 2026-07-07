@@ -8,13 +8,14 @@ fn init_logs() {
     tracing_subscriber::registry()
         .with(
             EnvFilter::builder()
-                .with_default_directive(LevelFilter::DEBUG.into())
+                .with_default_directive(LevelFilter::TRACE.into())
                 .from_env()
                 .expect("Cannot initialize env filter"),
         )
         .with(
             tracing_subscriber::fmt::layer()
                 .compact()
+                // .with_writer(std::io::stderr)
                 .with_span_events(FmtSpan::FULL),
         )
         .try_init()

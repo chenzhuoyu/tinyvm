@@ -4,6 +4,7 @@
 #![feature(maybe_uninit_as_bytes)]
 #![cfg_attr(target_arch = "aarch64", feature(portable_simd))]
 #![cfg_attr(target_arch = "aarch64", feature(simd_ffi))]
+#![feature(slice_shift)]
 
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64;

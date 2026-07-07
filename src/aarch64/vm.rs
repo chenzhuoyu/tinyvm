@@ -20,8 +20,13 @@ fn irq_stubs() -> &'static [u8] {
     }
 }
 
-pub enum Vm {}
-static mut IRQ_STUBS: Uintptr = Uintptr::NIL;
+pub struct Vm {
+    irq_stubs: Uintptr,
+}
+
+static mut VM: Vm = Vm {
+    irq_stubs: Uintptr::NIL,
+};
 
 impl Vm {
     pub fn init() {
@@ -59,19 +64,26 @@ impl Vm {
         /* load IRQ stubs into memory */
         unsafe {
             std::ptr::copy_nonoverlapping(stub.as_ptr(), code as *mut u8, stub.len());
-            IRQ_STUBS = code.into();
+            VM.irq_stubs = code.into();
         }
 
         /* initialize the page table */
         PageTable::init(Uintptr::from(ptable));
         PageTable::register(code.into(), size, Protection::RX);
+
+        /* log the IRQ stubs range */
+        tracing::debug!(
+            "IRQ Stubs are loaded into {:p}-{:p}",
+            Uintptr::from(code),
+            Uintptr::from(code) + size
+        );
     }
 }
 
 impl Vm {
     #[inline]
     pub fn irq_stubs() -> Uintptr {
-        unsafe { IRQ_STUBS }
+        unsafe { VM.irq_stubs }
     }
 }
 

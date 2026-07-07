@@ -1,12 +1,13 @@
 use std::{
-    ffi::OsStr,
+    borrow::Cow,
+    ffi::{CString, OsStr},
     fmt::{Debug, Formatter, Result as FmtResult},
     fs::File,
     io::Read,
     mem::MaybeUninit,
-    os::unix::ffi::OsStrExt,
+    os::unix::{ffi::OsStrExt, fs::MetadataExt},
     path::Path,
-    sync::OnceLock,
+    sync::{LazyLock, OnceLock},
 };
 
 use anyhow::{anyhow, ensure};
@@ -27,11 +28,29 @@ use crate::{
         io::{MappedFile, MemoryIo, ValueExt},
         path::LibPathNormalizeExt,
         ptr::Uintptr,
+        str::Sz,
     },
 };
 
 type LoadFn = Box<dyn FnMut(Uintptr, usize, Protection) + Send>;
 type LoadHandler = Option<LoadFn>;
+
+#[repr(C)]
+#[derive(Debug)]
+struct DyldImageInfo {
+    addr: Uintptr,
+    path: Sz,
+    time: i64,
+}
+
+static LLDB_IMAGE_NOTIFIER: LazyLock<
+    Option<unsafe extern "C" fn(mode: u32, count: usize, info: *const DyldImageInfo)>,
+> = LazyLock::new(|| unsafe {
+    std::mem::transmute(libc::dlsym(
+        libc::dlopen(c"/usr/lib/dyld".as_ptr(), libc::RTLD_LAZY),
+        c"lldb_image_notifier".as_ptr(),
+    ))
+});
 
 pub struct Image {
     pub data: Memory,
@@ -228,6 +247,20 @@ impl Image {
                 assert_eq!(seg.vmaddr.value(), 0, "__PAGEZERO not at addr 0");
                 assert_eq!(seg.initprot.value(), 0, "__PAGEZERO is not guared");
                 Self::notify_load_handler(Uintptr::NIL, seg.vmsize.usize(), Protection::NONE);
+            }
+        }
+
+        /* notify the debugger, if present */
+        if let Some(lldb_image_notifier) = *LLDB_IMAGE_NOTIFIER {
+            let name = CString::new(path.as_os_str().as_bytes())
+                .map_or(Cow::Borrowed(c"(???)"), Cow::Owned);
+            let info = DyldImageInfo {
+                addr: image.addr(),
+                path: Sz::from(name.as_ptr()),
+                time: path.metadata().map_or(0, |m| m.mtime()),
+            };
+            unsafe {
+                lldb_image_notifier(0, 1, &raw const info);
             }
         }
 

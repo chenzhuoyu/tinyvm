@@ -1,0 +1,3 @@
+pub const SYS_MACHDEP: i64 = 0x80000000;
+pub const MACHDEP_SET_CTHREAD_SELF: u64 = 2;
+pub const MACHDEP_GET_CTHREAD_SELF: u64 = 3;
