@@ -3,6 +3,7 @@ pub mod ffi;
 pub mod paging;
 pub mod regs;
 pub mod syscall;
+pub mod virtos;
 pub mod vm;
 
 use cpu::{COMMPAGE_BEGIN, COMMPAGE_END, COMMPAGE_RO_BEGIN, COMMPAGE_RO_END, Cpu};
@@ -75,7 +76,7 @@ pub fn vm_exec() -> Unit {
     let image = Image::load("/bin/ls")?; // TODO: load actual image
 
     /* construct the initial stack frame */
-    frame.args.main = image.entry;
+    frame.args.main = image.data.addr();
     frame.args.argc = 1;
     frame.args.args[0] = frame.args.add_cstr("ls");
     frame.args.args[1] = Uintptr::NIL;

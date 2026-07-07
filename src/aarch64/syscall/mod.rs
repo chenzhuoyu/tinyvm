@@ -1,12 +1,18 @@
 mod bsd;
-mod platform;
+mod mach;
+mod machdep;
 
 use bsd::BsdSyscall;
-use platform::*;
+use mach::MachTrap;
+use machdep::MachDep;
 
 use super::{
     cpu::Cpu,
     regs::{PSTATE_NZCV, Reg, SysReg},
+};
+use crate::{
+    aarch64::{regs::PSTATE_C, virtos},
+    utils::ptr::Uintptr,
 };
 
 pub struct SvcResult {
@@ -86,41 +92,68 @@ impl Syscall<'_> {
 }
 
 impl Syscall<'_> {
-    fn dispatch_bsd(&mut self, id: u64) {
-        let bsd = BsdSyscall::decode(id, &self.args);
-        tracing::trace!("SYSCALL   :: [{id:3?}] {bsd:?}");
-        self.forward();
+    fn bsd_return(&mut self, err: i32, ret0: u64, ret1: u64) {
+        if err != 0 {
+            self.args[0] = err as u64;
+            self.args[1] = 0;
+            self.nzcv |= PSTATE_C;
+        } else {
+            self.args[0] = ret0;
+            self.args[1] = ret1;
+            self.nzcv &= !PSTATE_C;
+        }
+    }
+}
+
+impl Syscall<'_> {
+    fn dispatch_bsd(&mut self, bsd: BsdSyscall) {
+        match bsd {
+            BsdSyscall::shared_region_check_np(args) => {
+                let ptr = Uintptr::from(args.start_address);
+                let err = virtos::shared_region_check_np(ptr);
+                self.bsd_return(err, 0, 0);
+            }
+            BsdSyscall::shared_region_map_and_slide_2_np(args) => {
+                todo!("shared_region_map_and_slide_2_np({args:?})");
+            }
+            BsdSyscall::Unknown(..) => self.bsd_return(libc::ENOSYS, 0, 0),
+            _ => self.forward(),
+        }
     }
 
-    fn dispatch_mach(&mut self, id: u64) {
-        tracing::trace!("MACH_TRAP :: [{:3?}]", id);
-        self.forward();
+    fn dispatch_mach(&mut self, mach: MachTrap) {
+        match mach {
+            MachTrap::Unknown(..) => self.args[0] = libc::KERN_INVALID_ARGUMENT as u64,
+            _ => self.forward(),
+        }
     }
 
-    fn dispatch_machdep(&mut self, id: u64) {
-        match id {
-            MACHDEP_SET_CTHREAD_SELF => {
-                let value = self.args[0];
-                tracing::trace!("MACH_DEP  :: [  2] set_cthread_self(self=0x{value:x})");
-                self.cpu.write_sys_reg(SysReg::TPIDRRO_EL0, value);
-            }
-            MACHDEP_GET_CTHREAD_SELF => {
-                tracing::trace!("MACH_DEP  :: [  3] get_cthread_self()");
-                self.args[0] = self.cpu.read_sys_reg(SysReg::TPIDRRO_EL0)
-            }
-            _ => {}
+    fn dispatch_machdep(&mut self, machdep: MachDep) {
+        match machdep {
+            MachDep::SetCthreadSelf(tsd) => self.cpu.write_sys_reg(SysReg::TPIDRRO_EL0, tsd),
+            MachDep::GetCthreadSelf => self.args[0] = self.cpu.read_sys_reg(SysReg::TPIDRRO_EL0),
+            MachDep::Unknown(..) => {}
         }
     }
 }
 
 impl Syscall<'_> {
     pub fn dispatch(&mut self) {
-        if self.num == SYS_MACHDEP {
-            self.dispatch_machdep(self.args[3]);
+        if MachDep::is_machdep_trap(self.num) {
+            let id = self.args[3];
+            let machdep = MachDep::decode(id, &self.args);
+            tracing::trace!("MACH_DEP  :: [{id:3?}] {machdep:?}");
+            self.dispatch_machdep(machdep);
         } else if self.num < 0 {
-            self.dispatch_mach(-self.num as u64);
+            let id = -self.num as u64;
+            let mach = MachTrap::decode(id, &self.args);
+            tracing::trace!("MACH_TRAP :: [{id:3?}] {mach:?}");
+            self.dispatch_mach(mach);
         } else {
-            self.dispatch_bsd(self.num as u64);
+            let id = self.num as u64;
+            let bsd = BsdSyscall::decode(id, &self.args);
+            tracing::trace!("SYSCALL   :: [{id:3?}] {bsd:?}");
+            self.dispatch_bsd(bsd);
         }
     }
 }
