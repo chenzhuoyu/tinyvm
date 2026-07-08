@@ -3,7 +3,7 @@ use parking_lot::Mutex;
 use super::regs::{SCTLR_EL1, TCR_EL1};
 use crate::{
     macros::define_bit_field,
-    mem::{Addressable, Memory, Protection},
+    mem::{Memory, Protection},
     utils::ptr::Uintptr,
 };
 
@@ -104,6 +104,15 @@ define_bit_field! {
     }
 }
 
+impl TableDescriptor {
+    fn new(next: u64) -> Self {
+        TableDescriptor::builder()
+            .kind(0b11)
+            .next_table_addr(next)
+            .build()
+    }
+}
+
 pub const PAGE_SIZE: usize = 16384;
 pub const MAIR_EL1_INIT: u64 = 0xff;
 
@@ -131,6 +140,7 @@ pub const SCTLR_EL1_INIT: u64 = {
         .value()
 };
 
+#[derive(Clone, Copy)]
 union Entry {
     table: TableDescriptor,
     block: PageOrBlockDescriptor,
@@ -141,24 +151,9 @@ impl Entry {
     fn next_table(&mut self) -> &mut [Self; ENTRY_COUNT] {
         match unsafe { self.table.kind() } {
             0b00 => {
-                let mem = Memory::alloc(PAGE_SIZE).map(Protection::RW);
-                let tab = mem.addr();
-
-                /* calculate next table address */
-                let next = {
-                    assert!(tab.is_aligned_to(PAGE_SIZE));
-                    tab.as_u64() / (PAGE_SIZE as u64)
-                };
-
-                /* build the table entry */
-                self.table = TableDescriptor::builder()
-                    .kind(0b11)
-                    .next_table_addr(next)
-                    .build();
-
-                /* make the page table permanent */
-                std::mem::forget(mem);
-                tab.as_mut()
+                let next = Memory::alloc(PAGE_SIZE).map(Protection::RW).into_parts().0;
+                self.table = TableDescriptor::new(next.as_u64() / (PAGE_SIZE as u64));
+                next.as_mut()
             }
             0b11 => {
                 let addr = unsafe { self.table.next_table_addr() };
@@ -174,9 +169,9 @@ impl Entry {
     fn create_page(&mut self, addr: Uintptr, prot: Protection) {
         match unsafe { self.block.kind() } {
             0b00 => {}
-            0b01 => unsafe { panic!("not a page entry: {:#?}", self.table) },
-            0b10 => unsafe { panic!("invalid page entry: {:#?}", self.block) },
-            0b11 => unsafe { panic!("overlapping page entry: {:#?}", self.block) },
+            0b01 => unsafe { panic!("not a page entry at {:p}: {:#?}", addr, self.table) },
+            0b10 => unsafe { panic!("invalid page entry at {:p}: {:#?}", addr, self.block) },
+            0b11 => unsafe { panic!("overlapping page entry at {:p}: {:#?}", addr, self.block) },
             _ => unreachable!(),
         }
         let (ap, nx) = match prot {
@@ -184,7 +179,7 @@ impl Entry {
             Protection::RX => (0b11, 0),
             Protection::READ => (0b11, 0),
             Protection::NONE => (0b10, 1),
-            _ => panic!("invalid selection of prot bits: {prot:?}"),
+            _ => panic!("invalid selection of prot bits at {addr:p}: {prot:?}"),
         };
         self.block = PageOrBlockDescriptor::builder()
             .kind(0b11)
@@ -213,17 +208,26 @@ static PAGE_LOCK: Mutex<()> = Mutex::new(());
 static mut PAGE_TABLE: *mut PageTable = std::ptr::null_mut();
 
 impl PageTable {
-    pub(super) fn init(base: Uintptr) {
+    pub(super) fn init() {
         unsafe {
-            assert_eq!(libc::vm_page_size, PAGE_SIZE);
-            PAGE_TABLE = base.as_ptr();
+            assert!(
+                libc::vm_page_size == PAGE_SIZE,
+                "page size went bananas: {} != {}",
+                libc::vm_page_size,
+                PAGE_SIZE,
+            );
+            PAGE_TABLE = Memory::alloc(PAGE_SIZE)
+                .map(Protection::RW)
+                .into_parts()
+                .0
+                .as_ptr();
         }
     }
 }
 
 impl PageTable {
     #[inline(always)]
-    const fn index(addr: Uintptr) -> (usize, usize, usize) {
+    const fn index(addr: u64) -> (usize, usize, usize) {
         define_bit_field! {
             struct L3Ptr : usize {
                 offs: 14,
@@ -233,18 +237,23 @@ impl PageTable {
                 sign: 17,
             }
         }
-        let ptr = L3Ptr(addr.addr());
+        let ptr = L3Ptr(addr as usize);
         assert!(ptr.sign() == 0);
         (ptr.idx1(), ptr.idx2(), ptr.idx3())
     }
 }
 
 impl PageTable {
-    fn add_region(&mut self, mut addr: Uintptr, mut size: usize, prot: Protection) {
+    fn add_region(&mut self, mut phys: Uintptr, mut virt: u64, mut size: usize, prot: Protection) {
+        assert!(
+            virt.is_multiple_of(PAGE_SIZE as u64),
+            "virtual address is not aligned to page boundary"
+        );
         while size >= PAGE_SIZE {
-            let (l1, l2, l3) = Self::index(addr);
-            self.0[l1].next_table()[l2].next_table()[l3].create_page(addr, prot);
-            addr += PAGE_SIZE;
+            let (l1, l2, l3) = Self::index(virt);
+            self.0[l1].next_table()[l2].next_table()[l3].create_page(phys, prot);
+            virt += PAGE_SIZE as u64;
+            phys += PAGE_SIZE;
             size -= PAGE_SIZE;
         }
         assert!(
@@ -264,11 +273,48 @@ impl PageTable {
     }
 
     #[inline]
-    pub fn register(addr: Uintptr, size: usize, prot: Protection) {
+    pub fn insert(phys: Uintptr, virt: u64, size: usize, prot: Protection) {
         unsafe {
             let _m = PAGE_LOCK.lock();
             assert!(!PAGE_TABLE.is_null(), "VM is not initialized");
-            (*PAGE_TABLE).add_region(addr, size, prot);
+            (*PAGE_TABLE).add_region(phys, virt, size, prot);
+        }
+    }
+
+    #[inline]
+    pub fn translate(virt: u64) -> Option<Uintptr> {
+        macro_rules! table_lookup {
+            ($tab:expr, $level:literal, $idx:expr) => {
+                match (*$tab)[$idx].table.kind() {
+                    0b11 => {
+                        let next = (*$tab)[$idx].table.next_table_addr();
+                        Uintptr::from(next * (PAGE_SIZE as u64)).as_ptr()
+                    }
+                    0b01 => panic!("invalid L{} entry: not a table descriptor", $level),
+                    0b10 => panic!("invalid L{} entry", $level),
+                    0b00 => return None,
+                    _ => unreachable!(),
+                }
+            };
+        }
+
+        /* calculate the page table index */
+        let (l1, l2, l3) = Self::index(virt);
+        let mut tab = unsafe { &raw const (*PAGE_TABLE).0 };
+
+        /* perform L1 & L2 lookup */
+        let block = unsafe {
+            tab = table_lookup!(tab, 1, l1);
+            tab = table_lookup!(tab, 2, l2);
+            (*tab)[l3].block
+        };
+
+        /* perform the L3 lookup */
+        if block.kind() == 0b11 {
+            let offs = virt % (PAGE_SIZE as u64);
+            Some(Uintptr::from(block.phys_addr() * (PAGE_SIZE as u64) + offs))
+        } else {
+            None
         }
     }
 }

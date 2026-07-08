@@ -1,3 +1,5 @@
+mod commpage;
 mod shared_cache;
 
-pub use shared_cache::shared_region_check_np;
+pub use commpage::*;
+pub use shared_cache::*;

@@ -4,23 +4,15 @@ use std::{
 };
 
 use super::{
+    disasm::disasm,
     ffi::*,
     paging::{MAIR_EL1_INIT, PageTable, SCTLR_EL1_INIT, TCR_EL1_INIT},
     regs::*,
     syscall::Syscall,
+    virtos,
     vm::Vm,
 };
-use crate::{
-    hv_call,
-    macros::define_accessors,
-    utils::{disasm::disasm, ptr::Uintptr},
-};
-
-pub(super) const COMMPAGE_END: Uintptr = Uintptr::new(0x1000000000);
-pub(super) const COMMPAGE_BEGIN: Uintptr = Uintptr::new(0xfffffc000);
-
-pub(super) const COMMPAGE_RO_END: Uintptr = Uintptr::new(0xfffff8000);
-pub(super) const COMMPAGE_RO_BEGIN: Uintptr = Uintptr::new(0xfffff4000);
+use crate::{hv_call, macros::define_accessors, utils::ptr::Uintptr};
 
 #[derive(Clone, Copy)]
 struct VmException {
@@ -99,7 +91,7 @@ impl Cpu {
         cpu.write_sys_reg(SysReg::SP_EL0, sp);
         cpu.write_sys_reg(SysReg::VBAR_EL1, Vm::irq_stubs().as_u64());
         cpu.write_sys_reg(SysReg::CPACR_EL1, CPACR_FPEN);
-        // cpu.write_sys_reg(SysReg::MDSCR_EL1, MDSCR_SS);
+        cpu.write_sys_reg(SysReg::MDSCR_EL1, MDSCR_SS);
         cpu
     }
 }
@@ -159,9 +151,7 @@ impl Cpu {
     }
 
     fn handle_data_abort(&mut self, pc: Uintptr, iss: DataAbortISS, addr: Uintptr) {
-        if addr < COMMPAGE_END && addr >= COMMPAGE_BEGIN
-            || addr < COMMPAGE_RO_END && addr >= COMMPAGE_RO_BEGIN
-        {
+        if virtos::is_commpage_addr(addr) {
             if iss.wnr() != 0 {
                 unimplemented!("write to commpage: {}", disasm(pc));
             }

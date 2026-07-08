@@ -1,9 +1,12 @@
-use super::ffi::*;
+use super::{
+    ffi::*,
+    paging::PageTable,
+    virtos::{COMMPAGE_BEGIN, COMMPAGE_END, COMMPAGE_RO_BEGIN, COMMPAGE_RO_END},
+};
 use crate::{
-    aarch64::paging::PageTable,
     hv_call,
-    mem::Protection,
-    utils::{ptr::Uintptr, size::align_to_page},
+    mem::{Memory, Protection},
+    utils::ptr::Uintptr,
 };
 
 unsafe extern "C" {
@@ -15,75 +18,60 @@ unsafe extern "C" {
 fn irq_stubs() -> &'static [u8] {
     unsafe {
         let end = &raw const irq_stub_end;
-        let data = &raw const irq_stub_start;
-        std::slice::from_raw_parts(data, end.offset_from_unsigned(data))
+        let start = &raw const irq_stub_start;
+        std::slice::from_raw_parts(start, end.offset_from_unsigned(start))
     }
 }
 
-pub struct Vm {
-    irq_stubs: Uintptr,
-}
-
-static mut VM: Vm = Vm {
-    irq_stubs: Uintptr::NIL,
-};
+pub enum Vm {}
+pub const IRQ_STUBS: Uintptr = Uintptr::new(0x7fff_0000_0000);
 
 impl Vm {
     pub fn init() {
-        let mut code = std::ptr::null_mut();
-        let mut ptable = std::ptr::null_mut();
-
-        /* find the IRQ stubs */
-        let stub = irq_stubs();
-        let size = align_to_page(stub.len());
-        let hcfg = unsafe { hv_vm_config_create() };
+        let code = irq_stubs();
+        let vcfg = unsafe { hv_vm_config_create() };
 
         /* create VM without EL2 */
-        hv_call!(hv_vm_config_set_el2_enabled(hcfg, false));
-        hv_call!(hv_vm_create(hcfg));
+        hv_call!(hv_vm_config_set_el2_enabled(vcfg, false));
+        hv_call!(hv_vm_create(vcfg));
 
-        /* allocate L1 page table */
-        hv_call!(hv_vm_allocate(
-            &raw mut ptable,
-            libc::vm_page_size,
-            HV_ALLOCATE_DEFAULT
-        ));
-
-        /* map the L1 page table into guest space */
-        hv_call!(hv_vm_map(
-            ptable,
-            ptable as u64,
-            size,
-            Protection::RW.bits()
-        ));
-
-        /* and allocate memory for IRQ stubs */
-        hv_call!(hv_vm_allocate(&raw mut code, size, HV_ALLOCATE_DEFAULT));
-        hv_call!(hv_vm_map(code, code as u64, size, Protection::RX.bits()));
-
-        /* load IRQ stubs into memory */
-        unsafe {
-            std::ptr::copy_nonoverlapping(stub.as_ptr(), code as *mut u8, stub.len());
-            VM.irq_stubs = code.into();
-        }
+        /* allocate memory for IRQ stubs */
+        let page = Memory::from_data(code).map(Protection::RX);
+        let (phys, size) = page.into_parts();
 
         /* initialize the page table */
-        PageTable::init(Uintptr::from(ptable));
-        PageTable::register(code.into(), size, Protection::RX);
+        PageTable::init();
+        PageTable::insert(phys, IRQ_STUBS.as_u64(), size, Protection::RX);
+
+        /* mark the Commpage as read-only in page table */
+        PageTable::insert(
+            COMMPAGE_BEGIN,
+            COMMPAGE_BEGIN.as_u64(),
+            COMMPAGE_END - COMMPAGE_BEGIN,
+            Protection::READ,
+        );
+
+        /* there seems to be two Commpages, don't ask me why, I genuinely don't know */
+        PageTable::insert(
+            COMMPAGE_RO_BEGIN,
+            COMMPAGE_RO_BEGIN.as_u64(),
+            COMMPAGE_RO_END - COMMPAGE_RO_BEGIN,
+            Protection::READ,
+        );
 
         /* log the IRQ stubs range */
         tracing::debug!(
             "IRQ Stubs are loaded into {:p}-{:p}",
-            Uintptr::from(code),
-            Uintptr::from(code) + size
+            IRQ_STUBS,
+            IRQ_STUBS + size,
         );
     }
 }
 
 impl Vm {
     #[inline]
-    pub fn irq_stubs() -> Uintptr {
-        unsafe { VM.irq_stubs }
+    pub const fn irq_stubs() -> Uintptr {
+        IRQ_STUBS
     }
 }
 

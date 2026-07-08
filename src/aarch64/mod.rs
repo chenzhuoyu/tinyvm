@@ -1,4 +1,5 @@
 pub mod cpu;
+pub mod disasm;
 pub mod ffi;
 pub mod paging;
 pub mod regs;
@@ -6,7 +7,7 @@ pub mod syscall;
 pub mod virtos;
 pub mod vm;
 
-use cpu::{COMMPAGE_BEGIN, COMMPAGE_END, COMMPAGE_RO_BEGIN, COMMPAGE_RO_END, Cpu};
+use cpu::Cpu;
 use paging::PageTable;
 use vm::Vm;
 
@@ -56,13 +57,26 @@ struct InitStackFrame {
     args: KernelArgs,
 }
 
+#[inline]
+fn on_load(addr: Uintptr, size: usize, prot: Protection) {
+    PageTable::insert(addr, addr.as_u64(), size, prot);
+}
+
 pub fn vm_exec() -> Unit {
     Vm::init();
-    Image::set_load_handler(PageTable::register);
+    Image::set_load_handler(on_load);
 
     /* create the stack */
     let stack = Memory::alloc(INIT_STACK_SIZE).map(Protection::RW);
     let frame = stack.addr().as_mut::<InitStackFrame>();
+
+    /* add the stack into page table */
+    PageTable::insert(
+        stack.addr(),
+        stack.addr().as_u64(),
+        stack.size(),
+        Protection::RW,
+    );
 
     /* log the stack range */
     tracing::debug!(
@@ -84,22 +98,7 @@ pub fn vm_exec() -> Unit {
     frame.args.args[3] = frame.args.add_cstr("executable_path=/bin/ls");
     frame.args.args[4] = Uintptr::NIL;
 
-    /* mark the Commpage as read-only in page table */
-    PageTable::register(
-        COMMPAGE_BEGIN,
-        COMMPAGE_END - COMMPAGE_BEGIN,
-        Protection::READ,
-    );
-
-    /* there seems to be two Commpages, don't ask me why, I genuinely don't know */
-    PageTable::register(
-        COMMPAGE_RO_BEGIN,
-        COMMPAGE_RO_END - COMMPAGE_RO_BEGIN,
-        Protection::READ,
-    );
-
-    /* mark the stack as read-write and start the vCPU */
-    PageTable::register(stack.addr(), stack.size(), Protection::RW);
+    /* start the vCPU */
     Cpu::new(dyld, &raw const frame.args as u64).run();
     Ok(())
 }

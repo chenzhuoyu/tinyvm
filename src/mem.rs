@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Formatter, Result as FmtResult},
     marker::PhantomData,
+    mem::ManuallyDrop,
     ops::{
         Deref, DerefMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
     },
@@ -11,7 +12,10 @@ use ffi::{HV_MEMORY_EXEC, HV_MEMORY_READ, HV_MEMORY_WRITE};
 
 #[cfg(target_arch = "aarch64")]
 use crate::aarch64::{ffi, vm::Vm};
-use crate::utils::{ptr::Uintptr, size::is_page_aligned};
+use crate::utils::{
+    ptr::Uintptr,
+    size::{align_to_page, is_page_aligned},
+};
 #[cfg(target_arch = "x86_64")]
 use crate::x86_64::ffi;
 
@@ -213,24 +217,23 @@ pub struct UnmappedMemory {
 impl UnmappedMemory {
     #[inline]
     pub fn map(self, prot: Protection) -> Memory {
-        let base = self.addr;
-        self.map_at(base.as_u64(), prot)
-    }
-
-    #[inline]
-    pub fn map_at(mut self, base: u64, prot: Protection) -> Memory {
-        let size = self.size;
-        let addr = std::mem::replace(&mut self.addr, Uintptr::NIL);
-        Vm::map(addr, base, size, prot);
+        let (addr, size) = self.into_parts();
+        Vm::map(addr, addr.as_u64(), size, prot);
         Memory { addr, size }
+    }
+}
+
+impl UnmappedMemory {
+    #[inline]
+    pub fn into_parts(self) -> (Uintptr, usize) {
+        let this = ManuallyDrop::new(self);
+        (this.addr, this.size)
     }
 }
 
 impl Drop for UnmappedMemory {
     fn drop(&mut self) {
-        if !self.addr.is_nil() {
-            Vm::dealloc(self.addr, self.size);
-        }
+        Vm::dealloc(self.addr, self.size);
     }
 }
 
@@ -248,9 +251,16 @@ pub struct Memory {
 
 impl Memory {
     pub fn alloc(size: usize) -> UnmappedMemory {
-        let size = unsafe { (size + libc::vm_page_size - 1) & !(libc::vm_page_size - 1) };
+        let size = align_to_page(size);
         let addr = Vm::alloc(size);
         UnmappedMemory { addr, size }
+    }
+
+    pub fn from_data(data: &[u8]) -> UnmappedMemory {
+        let dest = Self::alloc(data.len());
+        let addr = dest.addr.as_ptr::<u8>();
+        unsafe { addr.copy_from_nonoverlapping(data.as_ptr(), data.len()) }
+        dest
     }
 }
 
@@ -263,6 +273,14 @@ impl Memory {
     #[inline]
     pub fn view_mut<R: MemoryRange>(&mut self, range: R) -> MemoryViewMut<'_> {
         range.view_mut(self)
+    }
+}
+
+impl Memory {
+    #[inline]
+    pub fn into_parts(self) -> (Uintptr, usize) {
+        let this = ManuallyDrop::new(self);
+        (this.addr, this.size)
     }
 }
 
