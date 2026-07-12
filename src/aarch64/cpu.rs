@@ -91,7 +91,7 @@ impl Cpu {
         cpu.write_sys_reg(SysReg::SP_EL0, sp);
         cpu.write_sys_reg(SysReg::VBAR_EL1, Vm::irq_stubs().as_u64());
         cpu.write_sys_reg(SysReg::CPACR_EL1, CPACR_FPEN);
-        cpu.write_sys_reg(SysReg::MDSCR_EL1, MDSCR_SS);
+        // cpu.write_sys_reg(SysReg::MDSCR_EL1, MDSCR_SS);
         cpu
     }
 }

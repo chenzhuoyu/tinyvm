@@ -13,6 +13,9 @@ pub use tcr_el1::*;
 pub const MDSCR_SS: u64 = 1 << 0;
 pub const CPACR_FPEN: u64 = 3 << 20;
 
+pub const PSTATE_N: u64 = 1 << 31;
+pub const PSTATE_Z: u64 = 1 << 30;
 pub const PSTATE_C: u64 = 1 << 29;
+pub const PSTATE_V: u64 = 1 << 28;
 pub const PSTATE_SS: u64 = 1 << 21;
 pub const PSTATE_NZCV: u64 = 0b1111 << 28;

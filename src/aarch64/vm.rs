@@ -10,15 +10,15 @@ use crate::{
 };
 
 unsafe extern "C" {
-    unsafe static irq_stub_end: u8;
-    unsafe static irq_stub_start: u8;
+    unsafe static virtos_end: u8;
+    unsafe static virtos_start: u8;
 }
 
 #[inline]
-fn irq_stubs() -> &'static [u8] {
+fn virtos_code() -> &'static [u8] {
     unsafe {
-        let end = &raw const irq_stub_end;
-        let start = &raw const irq_stub_start;
+        let end = &raw const virtos_end;
+        let start = &raw const virtos_start;
         std::slice::from_raw_parts(start, end.offset_from_unsigned(start))
     }
 }
@@ -28,7 +28,7 @@ pub const IRQ_STUBS: Uintptr = Uintptr::new(0x7fff_0000_0000);
 
 impl Vm {
     pub fn init() {
-        let code = irq_stubs();
+        let code = virtos_code();
         let vcfg = unsafe { hv_vm_config_create() };
 
         /* create VM without EL2 */

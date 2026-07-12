@@ -1,6 +1,9 @@
 mod bsd;
+mod handlers;
 mod mach;
 mod machdep;
+
+use std::fmt::{Display, Formatter, Result as FmtResult};
 
 use bsd::BsdSyscall;
 use mach::MachTrap;
@@ -11,9 +14,25 @@ use super::{
     regs::{PSTATE_NZCV, Reg, SysReg},
 };
 use crate::{
-    aarch64::{regs::PSTATE_C, virtos},
+    aarch64::{
+        regs::{PSTATE_C, PSTATE_N, PSTATE_V, PSTATE_Z},
+        virtos,
+    },
     utils::ptr::Uintptr,
 };
+
+#[repr(transparent)]
+struct Nzcv(u64);
+
+impl Display for Nzcv {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "{}", if self.0 & PSTATE_N != 0 { "N" } else { "-" })?;
+        write!(f, "{}", if self.0 & PSTATE_Z != 0 { "Z" } else { "-" })?;
+        write!(f, "{}", if self.0 & PSTATE_C != 0 { "C" } else { "-" })?;
+        write!(f, "{}", if self.0 & PSTATE_V != 0 { "V" } else { "-" })?;
+        Ok(())
+    }
+}
 
 pub struct SvcResult {
     pub x0: u64,
@@ -70,6 +89,7 @@ impl<'p> Syscall<'p> {
 }
 
 impl Syscall<'_> {
+    #[inline]
     fn forward(&mut self) {
         unsafe {
             std::arch::asm!(
@@ -108,6 +128,18 @@ impl Syscall<'_> {
 impl Syscall<'_> {
     fn dispatch_bsd(&mut self, bsd: BsdSyscall) {
         match bsd {
+            BsdSyscall::munmap(args) => {
+                dbg!(args);
+                todo!()
+            }
+            BsdSyscall::mprotect(args) => {
+                dbg!(args);
+                todo!()
+            }
+            BsdSyscall::mmap(args) => {
+                dbg!(args);
+                todo!()
+            }
             BsdSyscall::shared_region_check_np(args) => {
                 let ptr = Uintptr::from(args.start_address);
                 let err = virtos::shared_region_check_np(ptr);
@@ -122,9 +154,27 @@ impl Syscall<'_> {
     }
 
     fn dispatch_mach(&mut self, mach: MachTrap) {
-        match mach {
-            MachTrap::Unknown(..) => self.args[0] = libc::KERN_INVALID_ARGUMENT as u64,
-            _ => self.forward(),
+        macro_rules! handle_mach_trap {
+            ($($name:ident $(($($field:ident),* $(,)?))?),+ $(,)?) => {
+                match mach {
+                    $(
+                        handle_mach_trap!(@HANDLER $name args @($($($field),*)?)) => {
+                            self.args[0] = self.$name($($(args.$field),*)?) as u64;
+                        }
+                    )*
+                    MachTrap::Unknown(..) => self.args[0] = libc::KERN_INVALID_ARGUMENT as u64,
+                    _ => self.forward(),
+                }
+            };
+            (@HANDLER $name:ident $args:ident @($($_:ident),+)) => { MachTrap::$name($args) };
+            (@HANDLER $name:ident $_:ident @()) => { MachTrap::$name };
+        }
+        handle_mach_trap! {
+            _kernelrpc_mach_vm_allocate_trap(target, addr, size, flags),
+            _kernelrpc_mach_vm_deallocate_trap(target, address, size),
+            _kernelrpc_mach_vm_protect_trap(target, address, size, set_maximum, new_protection),
+            _kernelrpc_mach_vm_map_trap(target, address, size, mask, flags, cur_protection),
+            task_self_trap,
         }
     }
 
@@ -142,19 +192,25 @@ impl Syscall<'_> {
         if MachDep::is_machdep_trap(self.num) {
             let id = self.args[3];
             let machdep = MachDep::decode(id, &self.args);
-            tracing::trace!("MACH_DEP  :: [{id:3?}] {machdep:?}");
+            tracing::trace!("MACH_DEP  [{id:3?}] :: {machdep:?}");
             self.dispatch_machdep(machdep);
         } else if self.num < 0 {
             let id = -self.num as u64;
             let mach = MachTrap::decode(id, &self.args);
-            tracing::trace!("MACH_TRAP :: [{id:3?}] {mach:?}");
+            tracing::trace!("MACH_TRAP [{id:3?}] :: {mach:?}");
             self.dispatch_mach(mach);
         } else {
             let id = self.num as u64;
             let bsd = BsdSyscall::decode(id, &self.args);
-            tracing::trace!("SYSCALL   :: [{id:3?}] {bsd:?}");
+            tracing::trace!("SYSCALL   [{id:3?}] :: {bsd:?}");
             self.dispatch_bsd(bsd);
         }
+        tracing::trace!(
+            "{pads:15} => 0x{retv:x} (nzcv={nzcv})",
+            pads = ' ',
+            retv = self.args[0],
+            nzcv = Nzcv(self.nzcv)
+        );
     }
 }
 

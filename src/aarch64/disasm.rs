@@ -47,6 +47,6 @@ fn read_u32(phys: Uintptr) -> u32 {
 #[inline]
 pub fn disasm<P: Into<Uintptr>>(pc: P) -> Disasm {
     let virt = pc.into();
-    let insn = PageTable::translate(virt.as_u64()).map(read_u32);
+    let insn = PageTable::translate(virt.as_u64()).map(read_u32).ok();
     Disasm { virt, insn }
 }
