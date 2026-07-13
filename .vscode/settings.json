@@ -23,5 +23,8 @@
   "lldb.showDisassembly": "auto",
   "lldb.dereferencePointers": true,
   "lldb.consoleMode": "commands",
-  "python-envs.defaultEnvManager": "ms-python.python:pyenv"
+  "python-envs.defaultEnvManager": "ms-python.python:pyenv",
+  "files.associations": {
+    "**/src/aarch64/virtos/*.s": "arm64"
+  }
 }

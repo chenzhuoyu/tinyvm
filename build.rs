@@ -1,5 +1,5 @@
 #[cfg(target_arch = "aarch64")]
-const VIRTOS_FILE: &str = "src/aarch64/virtos.s";
+const VIRTOS_FILE: &str = "src/aarch64/virtos/asm.s";
 
 pub fn main() {
     if std::env::var("__BUILD_WITH_SIGN") != Ok("yes".to_string()) {

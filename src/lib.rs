@@ -1,4 +1,5 @@
 #![feature(atomic_ptr_null)]
+#![feature(core_intrinsics)]
 #![feature(cstr_display)]
 #![feature(debug_closure_helpers)]
 #![feature(error_generic_member_access)]
@@ -7,6 +8,7 @@
 #![cfg_attr(target_arch = "aarch64", feature(portable_simd))]
 #![cfg_attr(target_arch = "aarch64", feature(simd_ffi))]
 #![feature(slice_shift)]
+#![allow(internal_features)]
 
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64;

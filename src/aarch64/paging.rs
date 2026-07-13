@@ -161,6 +161,11 @@ union Entry {
 
 impl Entry {
     #[inline]
+    fn clear(&mut self) {
+        unsafe { self.page.set_valid(0) }
+    }
+
+    #[inline]
     fn set_page(&mut self, addr: Uintptr, prot: Protection) {
         unsafe {
             assert!(
@@ -401,6 +406,20 @@ impl PageTable {
         Ok(())
     }
 
+    fn do_unmap(&mut self, mut virt: u64, num_pages: usize) -> PageUnit {
+        for i in 0..num_pages {
+            self.page_of(virt + (i * PAGE_SIZE) as u64)?;
+        }
+        for _ in 0..num_pages {
+            let (l1, l2, l3) = Self::index(virt);
+            let next = self.0[l1].set_table(FaultLevel::L1);
+            let next = next[l2].set_table(FaultLevel::L2);
+            next[l3].clear();
+            virt += PAGE_SIZE as u64;
+        }
+        Ok(())
+    }
+
     fn do_protect(&mut self, mut virt: u64, num_pages: usize, prot: Protection) -> PageUnit {
         let (ap, nx) = match prot {
             Protection::RW => (0b01, 1),
@@ -436,6 +455,13 @@ impl PageTable {
     }
 
     #[inline]
+    pub fn remove(virt: u64, size: usize) {
+        if let Err(err) = Self::unmap(virt, size) {
+            panic!("cannot remove page table entry: {err}");
+        }
+    }
+
+    #[inline]
     pub fn insert(phys: Uintptr, virt: u64, size: usize, prot: Protection) {
         if let Err(err) = Self::map(phys, virt, size, prot) {
             panic!("cannot insert page table entry: {err}");
@@ -456,6 +482,19 @@ impl PageTable {
             if virt.is_multiple_of(PAGE_SIZE as u64) {
                 let _lock = PAGE_LOCK.lock();
                 tab.do_map(phys, virt, size.div_ceil(PAGE_SIZE), prot)
+            } else {
+                Err(PageFault::einval(FaultLevel::L1))
+            }
+        } else {
+            panic!("VM is not initialized")
+        }
+    }
+
+    pub fn unmap(virt: u64, size: usize) -> PageUnit {
+        if let Some(tab) = unsafe { PAGE_TABLE.as_mut() } {
+            if virt.is_multiple_of(PAGE_SIZE as u64) {
+                let _lock = PAGE_LOCK.lock();
+                tab.do_unmap(virt, size.div_ceil(PAGE_SIZE))
             } else {
                 Err(PageFault::einval(FaultLevel::L1))
             }

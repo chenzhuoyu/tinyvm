@@ -1,5 +1,4 @@
 mod bsd;
-mod handlers;
 mod mach;
 mod machdep;
 
@@ -138,6 +137,7 @@ impl Syscall<'_> {
             }
             BsdSyscall::mmap(args) => {
                 dbg!(args);
+                std::intrinsics::breakpoint();
                 todo!()
             }
             BsdSyscall::shared_region_check_np(args) => {
@@ -147,6 +147,9 @@ impl Syscall<'_> {
             }
             BsdSyscall::shared_region_map_and_slide_2_np(args) => {
                 todo!("shared_region_map_and_slide_2_np({args:?})");
+            }
+            BsdSyscall::map_with_linking_np(args) => {
+                todo!("map_with_linking_np({args:?})");
             }
             BsdSyscall::Unknown(..) => self.bsd_return(libc::ENOSYS, 0, 0),
             _ => self.forward(),
@@ -159,7 +162,7 @@ impl Syscall<'_> {
                 match mach {
                     $(
                         handle_mach_trap!(@HANDLER $name args @($($($field),*)?)) => {
-                            self.args[0] = self.$name($($(args.$field),*)?) as u64;
+                            self.args[0] = virtos::$name(self, $($(args.$field),*)?) as u64;
                         }
                     )*
                     MachTrap::Unknown(..) => self.args[0] = libc::KERN_INVALID_ARGUMENT as u64,
@@ -220,5 +223,14 @@ impl Syscall<'_> {
         self.cpu.write_sys_reg(SysReg::SPSR_EL1, spsr);
         self.cpu.write_reg(Reg::X0, self.args[0]);
         self.cpu.write_reg(Reg::X1, self.args[1]);
+    }
+}
+
+impl virtos::HalProvider for Syscall<'_> {
+    fn flush_tlb_range(&mut self, start: u64, num_pages: usize) {
+        let cpsr = self.cpu.read_reg(Reg::CPSR);
+        self.cpu.write_reg(Reg::X16, start);
+        self.cpu.write_reg(Reg::X17, num_pages as u64);
+        self.cpu.write_reg(Reg::CPSR, cpsr | PSTATE_V);
     }
 }
