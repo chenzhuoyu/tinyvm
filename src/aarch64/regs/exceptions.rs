@@ -118,30 +118,30 @@ define_bit_field! {
     }
 
     pub struct DataAbortISS : u32 {
-        dfsc  : 6,
-        wnr   : 1,
-        s1ptw : 1,
-        cm    : 1,
-        ea    : 1,
-        fnv   : 1,
-        set   : 2,
-        vncr  : 1,
-        ar    : 1,
-        sf    : 1,
-        srt   : 5,
-        sse   : 1,
-        sas   : 2,
-        isv   : 1,
+        DFSC  : 6,
+        WnR   : 1,
+        S1PTW : 1,
+        CM    : 1,
+        EA    : 1,
+        FnV   : 1,
+        SET   : 2,
+        RES0  : 1,
+        AR    : 1,
+        SF    : 1,
+        SRT   : 5,
+        SSE   : 1,
+        SAS   : 2,
+        ISV   : 1,
     }
 
     pub struct SysRegTrapISS : u32 {
         dir : 1,
-        crm : 4,
-        rt  : 5,
-        crn : 4,
-        op1 : 3,
-        op2 : 3,
-        op0 : 2,
+        CRm : 4,
+        Rt  : 5,
+        CRn : 4,
+        Op1 : 3,
+        Op2 : 3,
+        Op0 : 2,
     }
 }
 
@@ -149,11 +149,11 @@ impl SysRegTrapISS {
     #[inline]
     pub fn sys_reg(self) -> SysReg {
         SysReg::new(
-            self.op0() as u16,
-            self.op1() as u16,
-            self.crn() as u16,
-            self.crm() as u16,
-            self.op2() as u16,
+            self.Op0() as u16,
+            self.Op1() as u16,
+            self.CRn() as u16,
+            self.CRm() as u16,
+            self.Op2() as u16,
         )
     }
 }

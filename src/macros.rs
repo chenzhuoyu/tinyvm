@@ -65,32 +65,6 @@ macro_rules! declare_friendly_enum {
     };
 }
 
-macro_rules! define_accessors {
-    (
-        $($what:ident : $value_ty:ty = ($name:ident : $ty:ty) :: $read:ident -> $write:ident),*
-        $(,)?
-    ) => {
-        paste::paste! {
-            #[allow(dead_code)]
-            impl Cpu {
-                $(
-                    #[inline]
-                    pub fn [< read_ $what >](&self, $name: $ty) -> $value_ty {
-                        let mut ret: $value_ty = unsafe { std::mem::zeroed() };
-                        $crate::hv_call!($read(self.vcpu, $name.[< $ty:snake >](), &raw mut ret));
-                        ret
-                    }
-
-                    #[inline]
-                    pub fn [< write_ $what >](&self, $name: $ty, value: $value_ty) {
-                        $crate::hv_call!($write(self.vcpu, $name.[< $ty:snake >](), value));
-                    }
-                )*
-            }
-        }
-    };
-}
-
 macro_rules! define_bit_field {
     ($(
         $(#[$attr:meta])*
@@ -212,5 +186,4 @@ macro_rules! define_bit_field {
 
 pub(crate) use __offsets;
 pub(crate) use declare_friendly_enum;
-pub(crate) use define_accessors;
 pub(crate) use define_bit_field;

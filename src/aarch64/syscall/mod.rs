@@ -1,6 +1,6 @@
-mod bsd;
-mod mach;
-mod machdep;
+pub mod bsd;
+pub mod mach;
+pub mod machdep;
 
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
@@ -10,15 +10,56 @@ use machdep::MachDep;
 
 use super::{
     cpu::Cpu,
-    regs::{PSTATE_NZCV, Reg, SysReg},
+    regs::{PSTATE_C, PSTATE_N, PSTATE_NZCV, PSTATE_V, PSTATE_Z, Reg, SysReg},
+    virtos::{self, HalProvider},
 };
-use crate::{
-    aarch64::{
-        regs::{PSTATE_C, PSTATE_N, PSTATE_V, PSTATE_Z},
-        virtos,
-    },
-    utils::ptr::Uintptr,
-};
+use crate::utils::ptr::Uintptr;
+
+trait BsdResult: Copy {
+    fn as_result(self) -> u64;
+}
+
+macro_rules! impl_bsd_result {
+    ($($({$($bounds:tt)*})? $ty:ty),+ $(,)?) => {
+        $(
+            impl<$($($bounds)*)?> BsdResult for $ty {
+                #[inline(always)]
+                fn as_result(self) -> u64 {
+                    self as u64
+                }
+            }
+        )+
+    };
+}
+
+impl_bsd_result! {
+    u8,
+    u16,
+    u32,
+    u64,
+    usize,
+    i8,
+    i16,
+    i32,
+    i64,
+    isize,
+    {T} *mut T,
+    {T} *const T,
+}
+
+impl BsdResult for () {
+    #[inline(always)]
+    fn as_result(self) -> u64 {
+        0u64
+    }
+}
+
+impl BsdResult for Uintptr {
+    #[inline(always)]
+    fn as_result(self) -> u64 {
+        self.as_u64()
+    }
+}
 
 #[repr(transparent)]
 struct Nzcv(u64);
@@ -111,58 +152,64 @@ impl Syscall<'_> {
 }
 
 impl Syscall<'_> {
-    fn bsd_return(&mut self, err: i32, ret0: u64, ret1: u64) {
-        if err != 0 {
-            self.args[0] = err as u64;
-            self.args[1] = 0;
-            self.nzcv |= PSTATE_C;
-        } else {
-            self.args[0] = ret0;
-            self.args[1] = ret1;
-            self.nzcv &= !PSTATE_C;
-        }
+    #[inline]
+    fn bsd_error(&mut self, err: i32) {
+        self.args[0] = err as u64;
+        self.args[1] = 0;
+        self.nzcv |= PSTATE_C;
+    }
+
+    #[inline]
+    fn bsd_result<T: BsdResult>(&mut self, ret: T) {
+        self.args[0] = ret.as_result();
+        self.args[1] = 0;
+        self.nzcv &= !PSTATE_C;
     }
 }
 
 impl Syscall<'_> {
     fn dispatch_bsd(&mut self, bsd: BsdSyscall) {
-        match bsd {
-            BsdSyscall::munmap(args) => {
-                dbg!(args);
-                todo!()
-            }
-            BsdSyscall::mprotect(args) => {
-                dbg!(args);
-                todo!()
-            }
-            BsdSyscall::mmap(args) => {
-                dbg!(args);
-                std::intrinsics::breakpoint();
-                todo!()
-            }
-            BsdSyscall::shared_region_check_np(args) => {
-                let ptr = Uintptr::from(args.start_address);
-                let err = virtos::shared_region_check_np(ptr);
-                self.bsd_return(err, 0, 0);
-            }
-            BsdSyscall::shared_region_map_and_slide_2_np(args) => {
-                todo!("shared_region_map_and_slide_2_np({args:?})");
-            }
-            BsdSyscall::map_with_linking_np(args) => {
-                todo!("map_with_linking_np({args:?})");
-            }
-            BsdSyscall::Unknown(..) => self.bsd_return(libc::ENOSYS, 0, 0),
-            _ => self.forward(),
+        mod impls {
+            pub(super) use super::virtos::{bsd_mman::*, shared_cache::*};
+        }
+        macro_rules! handle_syscall {
+            ($($name:ident $(($($field:ident),* $(,)?))?),+ $(,)?) => {
+                match bsd {
+                    $(
+                        handle_syscall!(@HANDLER $name args @($($($field),*)?)) => {
+                            match impls::$name(self.cpu, $($(args.$field),*)?) {
+                                Ok(ret) => self.bsd_result(ret),
+                                Err(err) => self.bsd_error(err.raw_os_error().unwrap_or(-1)),
+                            }
+                        }
+                    )*
+                    BsdSyscall::Unknown(..) => self.bsd_error(libc::ENOSYS),
+                    _ => self.forward(),
+                }
+            };
+            (@HANDLER $name:ident $args:ident @($($_:ident),+)) => { BsdSyscall::$name($args) };
+            (@HANDLER $name:ident $_:ident @()) => { BsdSyscall::$name };
+        }
+        handle_syscall! {
+            munmap(addr, len),
+            mprotect(addr, len, prot),
+            mmap(addr, len, prot, flags, fd, pos),
+            shared_region_check_np(start_address),
+            shared_region_map_and_slide_2_np(files_count, files, mappings_count, mappings_u),
+            map_with_linking_np(regions, region_count, link_info, link_info_size)
         }
     }
 
     fn dispatch_mach(&mut self, mach: MachTrap) {
+        mod impls {
+            pub(super) use super::virtos::{mach_vm::*, task::*};
+        }
         macro_rules! handle_mach_trap {
             ($($name:ident $(($($field:ident),* $(,)?))?),+ $(,)?) => {
                 match mach {
                     $(
                         handle_mach_trap!(@HANDLER $name args @($($($field),*)?)) => {
-                            self.args[0] = virtos::$name(self, $($(args.$field),*)?) as u64;
+                            self.args[0] = impls::$name(self.cpu, $($(args.$field),*)?) as u64;
                         }
                     )*
                     MachTrap::Unknown(..) => self.args[0] = libc::KERN_INVALID_ARGUMENT as u64,
@@ -223,14 +270,5 @@ impl Syscall<'_> {
         self.cpu.write_sys_reg(SysReg::SPSR_EL1, spsr);
         self.cpu.write_reg(Reg::X0, self.args[0]);
         self.cpu.write_reg(Reg::X1, self.args[1]);
-    }
-}
-
-impl virtos::HalProvider for Syscall<'_> {
-    fn flush_tlb_range(&mut self, start: u64, num_pages: usize) {
-        let cpsr = self.cpu.read_reg(Reg::CPSR);
-        self.cpu.write_reg(Reg::X16, start);
-        self.cpu.write_reg(Reg::X17, num_pages as u64);
-        self.cpu.write_reg(Reg::CPSR, cpsr | PSTATE_V);
     }
 }

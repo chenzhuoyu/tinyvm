@@ -9,10 +9,13 @@ use super::{
     paging::{MAIR_EL1_INIT, PageTable, SCTLR_EL1_INIT, TCR_EL1_INIT},
     regs::*,
     syscall::Syscall,
-    virtos,
+    virtos::{
+        self, HalProvider,
+        mmio::{MmioKind, MmioRequest, MmioSize},
+    },
     vm::Vm,
 };
-use crate::{hv_call, macros::define_accessors, utils::ptr::Uintptr};
+use crate::{hv_call, utils::ptr::Uintptr};
 
 #[derive(Clone, Copy)]
 struct VmException {
@@ -96,11 +99,6 @@ impl Cpu {
     }
 }
 
-define_accessors! {
-    reg     : u64 = (reg: Reg)        :: hv_vcpu_get_reg     -> hv_vcpu_set_reg,
-    sys_reg : u64 = (sys_reg: SysReg) :: hv_vcpu_get_sys_reg -> hv_vcpu_set_sys_reg,
-}
-
 impl Cpu {
     fn handle_exc(&mut self, exc: VmException) {
         match Exception::from(exc.syndrome.EC()) {
@@ -151,37 +149,59 @@ impl Cpu {
     }
 
     fn handle_data_abort(&mut self, pc: Uintptr, iss: DataAbortISS, addr: Uintptr) {
-        if virtos::is_commpage_addr(addr) {
-            if iss.wnr() != 0 {
-                unimplemented!("write to commpage: {}", disasm(pc));
-            }
-            if iss.isv() != 1 {
-                unimplemented!("DATA_ABORT with !ISS.ISV: {:#?} {}", iss, disasm(pc));
-            }
-            if iss.ar() != 0 {
-                unimplemented!("acquire/release read of commpage: {}", disasm(pc));
-            }
-            let mut data = match (iss.sas(), iss.sse()) {
-                (0b00, 0b1) => addr.read::<i8>() as u64,
-                (0b00, 0b0) => addr.read::<u8>() as u64,
-                (0b01, 0b1) => addr.read::<i16>() as u64,
-                (0b01, 0b0) => addr.read::<u16>() as u64,
-                (0b10, 0b1) => addr.read::<i32>() as u64,
-                (0b10, 0b0) => addr.read::<u32>() as u64,
-                (0b11, 0b1) => addr.read::<i64>() as u64,
-                (0b11, 0b0) => addr.read::<u64>(),
-                _ => unreachable!(),
-            };
-            if iss.sf() == 0 {
-                data &= u32::MAX as u64;
-            }
-            self.write_reg(Reg::from(iss.srt()), data);
-            self.write_reg(Reg::PC, pc.as_u64() + 4);
-        } else {
+        if iss.ISV() != 1 {
+            unimplemented!("DATA_ABORT with !ISS.ISV: {:#?} {}", iss, disasm(pc));
+        }
+        let data = match iss.WnR() {
+            0 => 0u64,
+            1 => self.read_reg(Reg::from(iss.SRT())),
+            _ => unreachable!(),
+        };
+        let size = match iss.SAS() {
+            0b00 => MmioSize::Mem8,
+            0b01 => MmioSize::Mem16,
+            0b10 => MmioSize::Mem32,
+            0b11 => MmioSize::Mem64,
+            _ => unreachable!(),
+        };
+        let kind = match (iss.WnR(), iss.AR()) {
+            (0, 0) => MmioKind::Read,
+            (0, 1) => MmioKind::ReadAtomic,
+            (1, 0) => MmioKind::Write,
+            (1, 1) => MmioKind::WriteAtomic,
+            _ => unreachable!(),
+        };
+        let mut req = MmioRequest {
+            data,
+            addr,
+            size,
+            kind,
+        };
+        if virtos::mmio::dispatch(pc, &mut req).is_none() {
             dbg!(&self);
             eprintln!("instr: {}", disasm(self.read_reg(Reg::PC)));
             todo!()
         }
+        if iss.WnR() == 1 {
+            self.write_reg(Reg::PC, pc.as_u64() + 4);
+            return;
+        }
+        let mut data = match (iss.SAS(), iss.SSE()) {
+            (0b00, 0b0) => req.data & (u8::MAX as u64),
+            (0b01, 0b0) => req.data & (u16::MAX as u64),
+            (0b10, 0b0) => req.data & (u32::MAX as u64),
+            (0b11, 0b0) => req.data,
+            (0b00, 0b1) => req.data as i8 as u64,
+            (0b01, 0b1) => req.data as i16 as u64,
+            (0b10, 0b1) => req.data as i32 as u64,
+            (0b11, 0b1) => req.data,
+            _ => unreachable!(),
+        };
+        if iss.SF() == 0 {
+            data &= u32::MAX as u64;
+        }
+        self.write_reg(Reg::from(iss.SRT()), data);
+        self.write_reg(Reg::PC, pc.as_u64() + 4);
     }
 
     fn handle_sysreg_trap(&mut self, iss: SysRegTrapISS) {
@@ -189,14 +209,14 @@ impl Cpu {
             ($kind:literal) => {
                 panic!(
                     "unhandled SysReg {ty} to \
-                     \"s{op0}_{op1}_c{crn}_c{crm}_{op2}\"\nInstruction:\n  \
+                     \"S{op0}_{op1}_C{crn}_C{crm}_{op2}\"\nInstruction:\n  \
                      {insn}\nISS={iss:#?}\n{self:#?}",
                     ty = $kind,
-                    op0 = iss.op0(),
-                    op1 = iss.op1(),
-                    crn = iss.crn(),
-                    crm = iss.crm(),
-                    op2 = iss.op2(),
+                    op0 = iss.Op0(),
+                    op1 = iss.Op1(),
+                    crn = iss.CRn(),
+                    crm = iss.CRm(),
+                    op2 = iss.Op2(),
                     insn = disasm(self.read_sys_reg(SysReg::ELR_EL1))
                 )
             };
@@ -211,7 +231,7 @@ impl Cpu {
                         SysReg::$reg => unsafe {
                             let mut val = 0u64;
                             std::arch::asm!(concat!("mrs {}, ", stringify!($id)), out(reg) val);
-                            self.write_reg(Reg::from(iss.rt()), val);
+                            self.write_reg(Reg::from(iss.Rt()), val);
                         }
                     )*
                     _ => wrong_sysreg!("read"),
@@ -291,5 +311,31 @@ impl Debug for Cpu {
         writeln!(f, "     TTBR0_EL1: {:016x}", s!(TTBR0_EL1))?;
         writeln!(f, "     TTBR1_EL1: {:016x}", s!(TTBR1_EL1))?;
         Ok(())
+    }
+}
+
+impl HalProvider for Cpu {
+    #[inline]
+    fn read_reg(&self, reg: Reg) -> u64 {
+        let mut ret = 0u64;
+        hv_call!(hv_vcpu_get_reg(self.vcpu, reg.reg(), &raw mut ret));
+        ret
+    }
+
+    #[inline]
+    fn write_reg(&self, reg: Reg, value: u64) {
+        hv_call!(hv_vcpu_set_reg(self.vcpu, reg.reg(), value));
+    }
+
+    #[inline]
+    fn read_sys_reg(&self, reg: SysReg) -> u64 {
+        let mut ret = 0u64;
+        hv_call!(hv_vcpu_get_sys_reg(self.vcpu, reg.sys_reg(), &raw mut ret));
+        ret
+    }
+
+    #[inline]
+    fn write_sys_reg(&self, reg: SysReg, value: u64) {
+        hv_call!(hv_vcpu_set_sys_reg(self.vcpu, reg.sys_reg(), value));
     }
 }

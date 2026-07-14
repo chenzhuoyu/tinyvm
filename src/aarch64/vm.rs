@@ -1,8 +1,4 @@
-use super::{
-    ffi::*,
-    paging::PageTable,
-    virtos::{COMMPAGE_BEGIN, COMMPAGE_END, COMMPAGE_RO_BEGIN, COMMPAGE_RO_END},
-};
+use super::{ffi::*, paging::PageTable};
 use crate::{
     hv_call,
     mem::{Memory, Protection},
@@ -42,22 +38,6 @@ impl Vm {
         /* initialize the page table */
         PageTable::init();
         PageTable::insert(phys, IRQ_STUBS.as_u64(), size, Protection::RX);
-
-        /* mark the Commpage as read-only in page table */
-        PageTable::insert(
-            COMMPAGE_BEGIN,
-            COMMPAGE_BEGIN.as_u64(),
-            COMMPAGE_END - COMMPAGE_BEGIN,
-            Protection::READ,
-        );
-
-        /* there seems to be two Commpages, don't ask me why, I genuinely don't know */
-        PageTable::insert(
-            COMMPAGE_RO_BEGIN,
-            COMMPAGE_RO_BEGIN.as_u64(),
-            COMMPAGE_RO_END - COMMPAGE_RO_BEGIN,
-            Protection::READ,
-        );
 
         /* log the IRQ stubs range */
         tracing::debug!(

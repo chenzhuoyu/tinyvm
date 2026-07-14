@@ -65,6 +65,7 @@ fn on_load(addr: Uintptr, size: usize, prot: Protection) {
 pub fn vm_exec() -> Unit {
     Vm::init();
     Image::set_load_handler(on_load);
+    virtos::init();
 
     /* create the stack */
     let stack = Memory::alloc(INIT_STACK_SIZE).map(Protection::RW);

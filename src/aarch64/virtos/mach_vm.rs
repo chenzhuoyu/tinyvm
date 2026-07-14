@@ -12,7 +12,7 @@ use mach2::{
     vm_types::{mach_vm_offset_t, mach_vm_size_t},
 };
 
-use super::{HalProvider, task::TASK_SELF};
+use super::{HalProvider, task::TASK_SELF, tlb::TlbProvider};
 use crate::{
     aarch64::{
         paging::{PAGE_SIZE, PageTable},
@@ -23,7 +23,7 @@ use crate::{
 };
 
 pub fn _kernelrpc_mach_vm_allocate_trap(
-    _hal: &mut impl HalProvider,
+    _hal: &impl HalProvider,
     target: mach_port_name_t,
     address: *mut mach_vm_offset_t,
     size: mach_vm_size_t,
@@ -32,25 +32,34 @@ pub fn _kernelrpc_mach_vm_allocate_trap(
     if target != *TASK_SELF {
         unsafe { mach_vm_allocate(target, address, size, flags) }
     } else {
+        // TODO (chenzhuoyu): implement this
         todo!()
     }
 }
 
 pub fn _kernelrpc_mach_vm_deallocate_trap(
-    _hal: &mut impl HalProvider,
+    hal: &impl HalProvider,
     target: mach_port_name_t,
     address: Uintptr,
     size: mach_vm_size_t,
 ) -> kern_return_t {
     if target == *TASK_SELF {
-        PageTable::remove(address.as_u64(), size as usize);
-        Vm::unmap(address.as_u64(), size as usize);
+        if let Err(err) = PageTable::unmap(address.as_u64(), size as usize) {
+            return match err.error.kind() {
+                ErrorKind::InvalidInput => KERN_INVALID_ADDRESS,
+                ErrorKind::Unsupported => KERN_NOT_SUPPORTED,
+                ErrorKind::OutOfMemory => KERN_MEMORY_FAILURE,
+                _ => KERN_FAILURE,
+            };
+        }
+        Vm::unmap(address.as_u64(), align_to_page(size as usize));
+        hal.flush_tlb_range(address.as_u64(), (size as usize).div_ceil(PAGE_SIZE));
     }
     unsafe { mach_vm_deallocate(target, address.as_u64(), size) }
 }
 
 pub fn _kernelrpc_mach_vm_protect_trap(
-    hal: &mut impl HalProvider,
+    hal: &impl HalProvider,
     target: mach_port_name_t,
     address: Uintptr,
     size: mach_vm_size_t,
@@ -81,7 +90,7 @@ pub fn _kernelrpc_mach_vm_protect_trap(
 }
 
 pub fn _kernelrpc_mach_vm_map_trap(
-    hal: &mut impl HalProvider,
+    hal: &impl HalProvider,
     target: mach_port_name_t,
     address: *mut mach_vm_offset_t,
     size: mach_vm_size_t,
@@ -97,9 +106,14 @@ pub fn _kernelrpc_mach_vm_map_trap(
         };
     }
 
-    /* get the self task */
-    let task = *TASK_SELF;
+    /* make a copy of the desired protection */
     let mut prot = Protection::NONE;
+    let mut map_protectiion = cur_protection;
+
+    /* always map as read-write at host side when targeting self */
+    if target == *TASK_SELF {
+        map_protectiion = VM_PROT_READ | VM_PROT_WRITE;
+    }
 
     /* forward the syscall */
     let result = unsafe {
@@ -112,14 +126,14 @@ pub fn _kernelrpc_mach_vm_map_trap(
             MACH_PORT_NULL,
             0,
             0,
-            cur_protection,
+            map_protectiion,
             VM_PROT_ALL,
             VM_INHERIT_DEFAULT,
         )
     };
 
     /* handle the syscall only if it's self-targeting and successful */
-    if task != target || result != KERN_SUCCESS {
+    if target != *TASK_SELF || result != KERN_SUCCESS {
         return result;
     }
 

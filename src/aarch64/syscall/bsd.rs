@@ -677,7 +677,7 @@ impl Debug for ARG_setuid {
 pub struct ARG_ptrace {
     pub req: i32,
     pub pid: libc::pid_t,
-    pub addr: Sz,
+    pub addr: Uintptr,
     pub data: i32,
 }
 
@@ -687,7 +687,7 @@ impl Arg for ARG_ptrace {
         Self {
             req: args[0] as i32,
             pid: args[1] as libc::pid_t,
-            addr: Sz::from(args[2] as *mut i8),
+            addr: Uintptr::from(args[2]),
             data: args[3] as i32,
         }
     }
@@ -736,7 +736,7 @@ impl Debug for ARG_recvmsg {
 #[derive(Clone, Copy)]
 pub struct ARG_sendmsg {
     pub s: i32,
-    pub msg: Sz,
+    pub msg: Uintptr,
     pub flags: i32,
 }
 
@@ -745,7 +745,7 @@ impl Arg for ARG_sendmsg {
     fn decode(args: &[u64; 9]) -> Self {
         Self {
             s: args[0] as i32,
-            msg: Sz::from(args[1] as *mut i8),
+            msg: Uintptr::from(args[1]),
             flags: args[2] as i32,
         }
     }
@@ -800,7 +800,7 @@ impl Debug for ARG_recvfrom {
 #[derive(Clone, Copy)]
 pub struct ARG_accept {
     pub s: i32,
-    pub name: Sz,
+    pub name: Uintptr,
     pub anamelen: *mut libc::socklen_t,
 }
 
@@ -809,7 +809,7 @@ impl Arg for ARG_accept {
     fn decode(args: &[u64; 9]) -> Self {
         Self {
             s: args[0] as i32,
-            name: Sz::from(args[1] as *mut i8),
+            name: Uintptr::from(args[1]),
             anamelen: args[2] as *mut libc::socklen_t,
         }
     }
@@ -829,7 +829,7 @@ impl Debug for ARG_accept {
 #[derive(Clone, Copy)]
 pub struct ARG_getpeername {
     pub fdes: i32,
-    pub asa: Sz,
+    pub asa: Uintptr,
     pub alen: *mut libc::socklen_t,
 }
 
@@ -838,7 +838,7 @@ impl Arg for ARG_getpeername {
     fn decode(args: &[u64; 9]) -> Self {
         Self {
             fdes: args[0] as i32,
-            asa: Sz::from(args[1] as *mut i8),
+            asa: Uintptr::from(args[1]),
             alen: args[2] as *mut libc::socklen_t,
         }
     }
@@ -858,7 +858,7 @@ impl Debug for ARG_getpeername {
 #[derive(Clone, Copy)]
 pub struct ARG_getsockname {
     pub fdes: i32,
-    pub asa: Sz,
+    pub asa: Uintptr,
     pub alen: *mut libc::socklen_t,
 }
 
@@ -867,7 +867,7 @@ impl Arg for ARG_getsockname {
     fn decode(args: &[u64; 9]) -> Self {
         Self {
             fdes: args[0] as i32,
-            asa: Sz::from(args[1] as *mut i8),
+            asa: Uintptr::from(args[1]),
             alen: args[2] as *mut libc::socklen_t,
         }
     }
@@ -1193,7 +1193,7 @@ impl Debug for ARG_sigaltstack {
 pub struct ARG_ioctl {
     pub fd: i32,
     pub com: u64,
-    pub data: Sz,
+    pub data: Uintptr,
 }
 
 impl Arg for ARG_ioctl {
@@ -1202,7 +1202,7 @@ impl Arg for ARG_ioctl {
         Self {
             fd: args[0] as i32,
             com: args[1],
-            data: Sz::from(args[2] as *mut i8),
+            data: Uintptr::from(args[2]),
         }
     }
 }
@@ -1387,7 +1387,7 @@ impl Debug for ARG_chroot {
 
 #[derive(Clone, Copy)]
 pub struct ARG_msync {
-    pub addr: Sz,
+    pub addr: Uintptr,
     pub len: usize,
     pub flags: i32,
 }
@@ -1396,7 +1396,7 @@ impl Arg for ARG_msync {
     #[inline]
     fn decode(args: &[u64; 9]) -> Self {
         Self {
-            addr: Sz::from(args[0] as *mut i8),
+            addr: Uintptr::from(args[0]),
             len: args[1] as usize,
             flags: args[2] as i32,
         }
@@ -1489,7 +1489,7 @@ impl Debug for ARG_oslog_coproc {
 
 #[derive(Clone, Copy)]
 pub struct ARG_munmap {
-    pub addr: Sz,
+    pub addr: Uintptr,
     pub len: usize,
 }
 
@@ -1497,7 +1497,7 @@ impl Arg for ARG_munmap {
     #[inline]
     fn decode(args: &[u64; 9]) -> Self {
         Self {
-            addr: Sz::from(args[0] as *mut i8),
+            addr: Uintptr::from(args[0]),
             len: args[1] as usize,
         }
     }
@@ -1512,7 +1512,7 @@ impl Debug for ARG_munmap {
 
 #[derive(Clone, Copy)]
 pub struct ARG_mprotect {
-    pub addr: Sz,
+    pub addr: Uintptr,
     pub len: usize,
     pub prot: i32,
 }
@@ -1521,7 +1521,7 @@ impl Arg for ARG_mprotect {
     #[inline]
     fn decode(args: &[u64; 9]) -> Self {
         Self {
-            addr: Sz::from(args[0] as *mut i8),
+            addr: Uintptr::from(args[0]),
             len: args[1] as usize,
             prot: args[2] as i32,
         }
@@ -1541,7 +1541,7 @@ impl Debug for ARG_mprotect {
 
 #[derive(Clone, Copy)]
 pub struct ARG_madvise {
-    pub addr: Sz,
+    pub addr: Uintptr,
     pub len: usize,
     pub behav: i32,
 }
@@ -1550,7 +1550,7 @@ impl Arg for ARG_madvise {
     #[inline]
     fn decode(args: &[u64; 9]) -> Self {
         Self {
-            addr: Sz::from(args[0] as *mut i8),
+            addr: Uintptr::from(args[0]),
             len: args[1] as usize,
             behav: args[2] as i32,
         }
@@ -1570,7 +1570,7 @@ impl Debug for ARG_madvise {
 
 #[derive(Clone, Copy)]
 pub struct ARG_mincore {
-    pub addr: Sz,
+    pub addr: Uintptr,
     pub len: usize,
     pub vec: Uintptr,
 }
@@ -1579,7 +1579,7 @@ impl Arg for ARG_mincore {
     #[inline]
     fn decode(args: &[u64; 9]) -> Self {
         Self {
-            addr: Sz::from(args[0] as *mut i8),
+            addr: Uintptr::from(args[0]),
             len: args[1] as usize,
             vec: Uintptr::from(args[2]),
         }
@@ -1891,7 +1891,7 @@ impl Debug for ARG_socket {
 #[derive(Clone, Copy)]
 pub struct ARG_connect {
     pub s: i32,
-    pub name: Sz,
+    pub name: Uintptr,
     pub namelen: libc::socklen_t,
 }
 
@@ -1900,7 +1900,7 @@ impl Arg for ARG_connect {
     fn decode(args: &[u64; 9]) -> Self {
         Self {
             s: args[0] as i32,
-            name: Sz::from(args[1] as *mut i8),
+            name: Uintptr::from(args[1]),
             namelen: args[2] as libc::socklen_t,
         }
     }
@@ -1943,7 +1943,7 @@ impl Debug for ARG_getpriority {
 #[derive(Clone, Copy)]
 pub struct ARG_bind {
     pub s: i32,
-    pub name: Sz,
+    pub name: Uintptr,
     pub namelen: libc::socklen_t,
 }
 
@@ -1952,7 +1952,7 @@ impl Arg for ARG_bind {
     fn decode(args: &[u64; 9]) -> Self {
         Self {
             s: args[0] as i32,
-            name: Sz::from(args[1] as *mut i8),
+            name: Uintptr::from(args[1]),
             namelen: args[2] as libc::socklen_t,
         }
     }
@@ -1974,7 +1974,7 @@ pub struct ARG_setsockopt {
     pub s: i32,
     pub level: i32,
     pub name: i32,
-    pub val: Sz,
+    pub val: Uintptr,
     pub valsize: libc::socklen_t,
 }
 
@@ -1985,7 +1985,7 @@ impl Arg for ARG_setsockopt {
             s: args[0] as i32,
             level: args[1] as i32,
             name: args[2] as i32,
-            val: Sz::from(args[3] as *mut i8),
+            val: Uintptr::from(args[3]),
             valsize: args[4] as libc::socklen_t,
         }
     }
@@ -2103,7 +2103,7 @@ pub struct ARG_getsockopt {
     pub s: i32,
     pub level: i32,
     pub name: i32,
-    pub val: Sz,
+    pub val: Uintptr,
     pub avalsize: *mut libc::socklen_t,
 }
 
@@ -2114,7 +2114,7 @@ impl Arg for ARG_getsockopt {
             s: args[0] as i32,
             level: args[1] as i32,
             name: args[2] as i32,
-            val: Sz::from(args[3] as *mut i8),
+            val: Uintptr::from(args[3]),
             avalsize: args[4] as *mut libc::socklen_t,
         }
     }
@@ -2382,10 +2382,10 @@ impl Debug for ARG_mkfifo {
 #[derive(Clone, Copy)]
 pub struct ARG_sendto {
     pub s: i32,
-    pub buf: Sz,
+    pub buf: Uintptr,
     pub len: usize,
     pub flags: i32,
-    pub to: Sz,
+    pub to: Uintptr,
     pub tolen: libc::socklen_t,
 }
 
@@ -2394,10 +2394,10 @@ impl Arg for ARG_sendto {
     fn decode(args: &[u64; 9]) -> Self {
         Self {
             s: args[0] as i32,
-            buf: Sz::from(args[1] as *mut i8),
+            buf: Uintptr::from(args[1]),
             len: args[2] as usize,
             flags: args[3] as i32,
-            to: Sz::from(args[4] as *mut i8),
+            to: Uintptr::from(args[4]),
             tolen: args[5] as libc::socklen_t,
         }
     }
@@ -2715,7 +2715,7 @@ impl Debug for ARG_pwrite {
 #[derive(Clone, Copy)]
 pub struct ARG_nfssvc {
     pub flag: i32,
-    pub argp: Sz,
+    pub argp: Uintptr,
 }
 
 impl Arg for ARG_nfssvc {
@@ -2723,7 +2723,7 @@ impl Arg for ARG_nfssvc {
     fn decode(args: &[u64; 9]) -> Self {
         Self {
             flag: args[0] as i32,
-            argp: Sz::from(args[1] as *mut i8),
+            argp: Uintptr::from(args[1]),
         }
     }
 }
@@ -2855,7 +2855,7 @@ pub struct ARG_quotactl {
     pub path: *mut i8,
     pub cmd: i32,
     pub uid: i32,
-    pub arg: Sz,
+    pub arg: Uintptr,
 }
 
 impl Arg for ARG_quotactl {
@@ -2865,7 +2865,7 @@ impl Arg for ARG_quotactl {
             path: args[0] as *mut i8,
             cmd: args[1] as i32,
             uid: args[2] as i32,
-            arg: Sz::from(args[3] as *mut i8),
+            arg: Uintptr::from(args[3]),
         }
     }
 }
@@ -2886,7 +2886,7 @@ pub struct ARG_mount {
     pub r#type: *mut i8,
     pub path: *mut i8,
     pub flags: i32,
-    pub data: Sz,
+    pub data: Uintptr,
 }
 
 impl Arg for ARG_mount {
@@ -2896,7 +2896,7 @@ impl Arg for ARG_mount {
             r#type: args[0] as *mut i8,
             path: args[1] as *mut i8,
             flags: args[2] as i32,
-            data: Sz::from(args[3] as *mut i8),
+            data: Uintptr::from(args[3]),
         }
     }
 }
@@ -3492,7 +3492,7 @@ impl Debug for ARG_getdirentries {
 
 #[derive(Clone, Copy)]
 pub struct ARG_mmap {
-    pub addr: Sz,
+    pub addr: Uintptr,
     pub len: usize,
     pub prot: i32,
     pub flags: i32,
@@ -3504,7 +3504,7 @@ impl Arg for ARG_mmap {
     #[inline]
     fn decode(args: &[u64; 9]) -> Self {
         Self {
-            addr: Sz::from(args[0] as *mut i8),
+            addr: Uintptr::from(args[0]),
             len: args[1] as usize,
             prot: args[2] as i32,
             flags: args[3] as i32,
@@ -3637,7 +3637,7 @@ impl Debug for ARG_sysctl {
 
 #[derive(Clone, Copy)]
 pub struct ARG_mlock {
-    pub addr: Sz,
+    pub addr: Uintptr,
     pub len: usize,
 }
 
@@ -3645,7 +3645,7 @@ impl Arg for ARG_mlock {
     #[inline]
     fn decode(args: &[u64; 9]) -> Self {
         Self {
-            addr: Sz::from(args[0] as *mut i8),
+            addr: Uintptr::from(args[0]),
             len: args[1] as usize,
         }
     }
@@ -3660,7 +3660,7 @@ impl Debug for ARG_mlock {
 
 #[derive(Clone, Copy)]
 pub struct ARG_munlock {
-    pub addr: Sz,
+    pub addr: Uintptr,
     pub len: usize,
 }
 
@@ -3668,7 +3668,7 @@ impl Arg for ARG_munlock {
     #[inline]
     fn decode(args: &[u64; 9]) -> Self {
         Self {
-            addr: Sz::from(args[0] as *mut i8),
+            addr: Uintptr::from(args[0]),
             len: args[1] as usize,
         }
     }
@@ -4394,7 +4394,7 @@ impl Debug for ARG_flistxattr {
 pub struct ARG_fsctl {
     pub path: *mut i8,
     pub cmd: u64,
-    pub data: Sz,
+    pub data: Uintptr,
     pub options: u32,
 }
 
@@ -4404,7 +4404,7 @@ impl Arg for ARG_fsctl {
         Self {
             path: args[0] as *mut i8,
             cmd: args[1],
-            data: Sz::from(args[2] as *mut i8),
+            data: Uintptr::from(args[2]),
             options: args[3] as u32,
         }
     }
@@ -4487,7 +4487,7 @@ impl Debug for ARG_posix_spawn {
 pub struct ARG_ffsctl {
     pub fd: i32,
     pub cmd: u64,
-    pub data: Sz,
+    pub data: Uintptr,
     pub options: u32,
 }
 
@@ -4497,7 +4497,7 @@ impl Arg for ARG_ffsctl {
         Self {
             fd: args[0] as i32,
             cmd: args[1],
-            data: Sz::from(args[2] as *mut i8),
+            data: Uintptr::from(args[2]),
             options: args[3] as u32,
         }
     }
@@ -4539,7 +4539,7 @@ impl Debug for ARG_fhopen {
 
 #[derive(Clone, Copy)]
 pub struct ARG_minherit {
-    pub addr: Sz,
+    pub addr: Uintptr,
     pub len: usize,
     pub inherit: i32,
 }
@@ -4548,7 +4548,7 @@ impl Arg for ARG_minherit {
     #[inline]
     fn decode(args: &[u64; 9]) -> Self {
         Self {
-            addr: Sz::from(args[0] as *mut i8),
+            addr: Uintptr::from(args[0]),
             len: args[1] as usize,
             inherit: args[2] as i32,
         }
@@ -7538,9 +7538,9 @@ impl Debug for ARG_kevent64 {
 #[derive(Clone, Copy)]
 pub struct ARG_ledger {
     pub cmd: i32,
-    pub arg1: Sz,
-    pub arg2: Sz,
-    pub arg3: Sz,
+    pub arg1: Uintptr,
+    pub arg2: Uintptr,
+    pub arg3: Uintptr,
 }
 
 impl Arg for ARG_ledger {
@@ -7548,9 +7548,9 @@ impl Arg for ARG_ledger {
     fn decode(args: &[u64; 9]) -> Self {
         Self {
             cmd: args[0] as i32,
-            arg1: Sz::from(args[1] as *mut i8),
-            arg2: Sz::from(args[2] as *mut i8),
-            arg3: Sz::from(args[3] as *mut i8),
+            arg1: Uintptr::from(args[1]),
+            arg2: Uintptr::from(args[2]),
+            arg3: Uintptr::from(args[3]),
         }
     }
 }
@@ -8162,7 +8162,7 @@ impl Debug for ARG_recvmsg_nocancel {
 #[derive(Clone, Copy)]
 pub struct ARG_sendmsg_nocancel {
     pub s: i32,
-    pub msg: Sz,
+    pub msg: Uintptr,
     pub flags: i32,
 }
 
@@ -8171,7 +8171,7 @@ impl Arg for ARG_sendmsg_nocancel {
     fn decode(args: &[u64; 9]) -> Self {
         Self {
             s: args[0] as i32,
-            msg: Sz::from(args[1] as *mut i8),
+            msg: Uintptr::from(args[1]),
             flags: args[2] as i32,
         }
     }
@@ -8226,7 +8226,7 @@ impl Debug for ARG_recvfrom_nocancel {
 #[derive(Clone, Copy)]
 pub struct ARG_accept_nocancel {
     pub s: i32,
-    pub name: Sz,
+    pub name: Uintptr,
     pub anamelen: *mut libc::socklen_t,
 }
 
@@ -8235,7 +8235,7 @@ impl Arg for ARG_accept_nocancel {
     fn decode(args: &[u64; 9]) -> Self {
         Self {
             s: args[0] as i32,
-            name: Sz::from(args[1] as *mut i8),
+            name: Uintptr::from(args[1]),
             anamelen: args[2] as *mut libc::socklen_t,
         }
     }
@@ -8254,7 +8254,7 @@ impl Debug for ARG_accept_nocancel {
 
 #[derive(Clone, Copy)]
 pub struct ARG_msync_nocancel {
-    pub addr: Sz,
+    pub addr: Uintptr,
     pub len: usize,
     pub flags: i32,
 }
@@ -8263,7 +8263,7 @@ impl Arg for ARG_msync_nocancel {
     #[inline]
     fn decode(args: &[u64; 9]) -> Self {
         Self {
-            addr: Sz::from(args[0] as *mut i8),
+            addr: Uintptr::from(args[0]),
             len: args[1] as usize,
             flags: args[2] as i32,
         }
@@ -8365,7 +8365,7 @@ impl Debug for ARG_fsync_nocancel {
 #[derive(Clone, Copy)]
 pub struct ARG_connect_nocancel {
     pub s: i32,
-    pub name: Sz,
+    pub name: Uintptr,
     pub namelen: libc::socklen_t,
 }
 
@@ -8374,7 +8374,7 @@ impl Arg for ARG_connect_nocancel {
     fn decode(args: &[u64; 9]) -> Self {
         Self {
             s: args[0] as i32,
-            name: Sz::from(args[1] as *mut i8),
+            name: Uintptr::from(args[1]),
             namelen: args[2] as libc::socklen_t,
         }
     }
@@ -8473,10 +8473,10 @@ impl Debug for ARG_writev_nocancel {
 #[derive(Clone, Copy)]
 pub struct ARG_sendto_nocancel {
     pub s: i32,
-    pub buf: Sz,
+    pub buf: Uintptr,
     pub len: usize,
     pub flags: i32,
-    pub to: Sz,
+    pub to: Uintptr,
     pub tolen: libc::socklen_t,
 }
 
@@ -8485,10 +8485,10 @@ impl Arg for ARG_sendto_nocancel {
     fn decode(args: &[u64; 9]) -> Self {
         Self {
             s: args[0] as i32,
-            buf: Sz::from(args[1] as *mut i8),
+            buf: Uintptr::from(args[1]),
             len: args[2] as usize,
             flags: args[3] as i32,
-            to: Sz::from(args[4] as *mut i8),
+            to: Uintptr::from(args[4]),
             tolen: args[5] as libc::socklen_t,
         }
     }
@@ -8804,7 +8804,7 @@ pub struct ARG___mac_mount {
     pub r#type: *mut i8,
     pub path: *mut i8,
     pub flags: i32,
-    pub data: Sz,
+    pub data: Uintptr,
     pub mac_p: *mut mac,
 }
 
@@ -8815,7 +8815,7 @@ impl Arg for ARG___mac_mount {
             r#type: args[0] as *mut i8,
             path: args[1] as *mut i8,
             flags: args[2] as i32,
-            data: Sz::from(args[3] as *mut i8),
+            data: Uintptr::from(args[3]),
             mac_p: args[4] as *mut mac,
         }
     }
@@ -10560,7 +10560,7 @@ impl Debug for ARG_renameatx_np {
 
 #[derive(Clone, Copy)]
 pub struct ARG_mremap_encrypted {
-    pub addr: Sz,
+    pub addr: Uintptr,
     pub len: usize,
     pub cryptid: u32,
     pub cputype: u32,
@@ -10571,7 +10571,7 @@ impl Arg for ARG_mremap_encrypted {
     #[inline]
     fn decode(args: &[u64; 9]) -> Self {
         Self {
-            addr: Sz::from(args[0] as *mut i8),
+            addr: Uintptr::from(args[0]),
             len: args[1] as usize,
             cryptid: args[2] as u32,
             cputype: args[3] as u32,

@@ -330,6 +330,13 @@ impl Display for PageFault {
     }
 }
 
+impl From<PageFault> for IoError {
+    #[inline]
+    fn from(error: PageFault) -> Self {
+        error.error
+    }
+}
+
 #[repr(transparent)]
 pub struct PageTable([Entry; ENTRY_COUNT]);
 

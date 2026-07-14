@@ -1,15 +1,22 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
-mod commpage;
-mod shared_cache;
-mod task;
-mod vm;
+pub mod bsd_mman;
+pub mod commpage;
+pub mod mach_vm;
+pub mod mmio;
+pub mod shared_cache;
+pub mod task;
+pub mod tlb;
 
-pub use commpage::*;
-pub use shared_cache::*;
-pub use task::*;
-pub use vm::*;
+use super::regs::{Reg, SysReg};
 
 pub trait HalProvider {
-    fn flush_tlb_range(&mut self, start: u64, num_pages: usize);
+    fn read_reg(&self, reg: Reg) -> u64;
+    fn write_reg(&self, reg: Reg, value: u64);
+    fn read_sys_reg(&self, sys_reg: SysReg) -> u64;
+    fn write_sys_reg(&self, sys_reg: SysReg, value: u64);
+}
+
+pub fn init() {
+    commpage::init();
 }

@@ -309,8 +309,8 @@ fn mk_uuid(lsb: u64, msb: u64) -> libc::uuid_t {
 TYPE_MAP = {
     'au_asid_t'                       : 'au_asid_t',
     'au_id_t'                         : 'au_id_t',
-    'caddr_t'                         : 'Sz',
-    'caddr_ut'                        : 'Sz',
+    'caddr_t'                         : 'Uintptr',
+    'caddr_ut'                        : 'Uintptr',
     'char'                            : 'i8',
     'fhandle_t'                       : 'fhandle_t',
     'gid_t'                           : 'libc::gid_t',
