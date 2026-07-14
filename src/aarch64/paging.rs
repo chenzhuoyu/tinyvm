@@ -502,7 +502,7 @@ impl PageTable {
                 Err(PageFault::einval(FaultLevel::L1))
             }
         } else {
-            panic!("VM is not initialized")
+            panic!("Page Table is not initialized")
         }
     }
 
@@ -515,7 +515,7 @@ impl PageTable {
                 Err(PageFault::einval(FaultLevel::L1))
             }
         } else {
-            panic!("VM is not initialized")
+            panic!("Page Table is not initialized")
         }
     }
 
@@ -528,7 +528,7 @@ impl PageTable {
                 Err(PageFault::einval(FaultLevel::L1))
             }
         } else {
-            panic!("VM is not initialized")
+            panic!("Page Table is not initialized")
         }
     }
 }

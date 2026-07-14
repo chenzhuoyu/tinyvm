@@ -10,10 +10,9 @@ use super::{
     regs::*,
     syscall::Syscall,
     virtos::{
-        self, HalProvider,
-        mmio::{MmioKind, MmioRequest, MmioSize},
+        HalProvider, irq_stubs,
+        mmio::{self, MmioKind, MmioRequest, MmioSize},
     },
-    vm::Vm,
 };
 use crate::{hv_call, utils::ptr::Uintptr};
 
@@ -92,7 +91,7 @@ impl Cpu {
         cpu.write_reg(Reg::PC, pc);
         cpu.write_reg(Reg::CPSR, 0);
         cpu.write_sys_reg(SysReg::SP_EL0, sp);
-        cpu.write_sys_reg(SysReg::VBAR_EL1, Vm::irq_stubs().as_u64());
+        cpu.write_sys_reg(SysReg::VBAR_EL1, irq_stubs());
         cpu.write_sys_reg(SysReg::CPACR_EL1, CPACR_FPEN);
         // cpu.write_sys_reg(SysReg::MDSCR_EL1, MDSCR_SS);
         cpu
@@ -177,7 +176,7 @@ impl Cpu {
             size,
             kind,
         };
-        if virtos::mmio::dispatch(pc, &mut req).is_none() {
+        if mmio::dispatch(pc, &mut req).is_none() {
             panic!(
                 "unhandled MMIO request: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
                 insn = disasm(self.read_reg(Reg::PC))

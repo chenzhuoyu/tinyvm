@@ -123,7 +123,9 @@ impl Image {
     where
         F: FnMut(Uintptr, usize, Protection, Protection) + Send + 'static,
     {
-        *LDFN.lock() = Some(Box::new(f));
+        let mut ldfn = LDFN.lock();
+        assert!(ldfn.is_none(), "load handler was already set");
+        *ldfn = Some(Box::new(f));
     }
 }
 
