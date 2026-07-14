@@ -114,7 +114,7 @@ impl Cpu {
             }
             Exception::SOFTWARE_STEP => {
                 let pc = Uintptr::from(self.read_reg(Reg::PC));
-                eprintln!("SINGLE_STEP: {}", disasm(pc));
+                tracing::trace!("SINGLE_STEP: {}", disasm(pc));
                 self.write_reg(Reg::CPSR, self.read_reg(Reg::CPSR) | PSTATE_SS);
             }
             ec => {
@@ -178,9 +178,10 @@ impl Cpu {
             kind,
         };
         if virtos::mmio::dispatch(pc, &mut req).is_none() {
-            dbg!(&self);
-            eprintln!("instr: {}", disasm(self.read_reg(Reg::PC)));
-            todo!()
+            panic!(
+                "unhandled MMIO request: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
+                insn = disasm(self.read_reg(Reg::PC))
+            );
         }
         if iss.WnR() == 1 {
             self.write_reg(Reg::PC, pc.as_u64() + 4);
@@ -220,20 +221,34 @@ impl Cpu {
                     insn = disasm(self.read_sys_reg(SysReg::ELR_EL1))
                 )
             };
+            ($kind:literal, $reg:expr) => {
+                panic!(
+                    "unhandled SysReg {ty} to \"{reg:?}\"\nInstruction:\n  \
+                     {insn}\nISS={iss:#?}\n{self:#?}",
+                    ty = $kind,
+                    reg = $reg,
+                    insn = disasm(self.read_sys_reg(SysReg::ELR_EL1))
+                )
+            };
         }
         if iss.dir() == 0 {
-            wrong_sysreg!("write");
+            if let Ok(reg) = iss.sys_reg() {
+                wrong_sysreg!("write", reg);
+            } else {
+                wrong_sysreg!("write");
+            }
         }
         macro_rules! read_sys_reg {
             ($($reg:ident => $id:ident),* $(,)?) => {
                 match iss.sys_reg() {
                     $(
-                        SysReg::$reg => unsafe {
+                        Ok(SysReg::$reg) => unsafe {
                             let mut val = 0u64;
                             std::arch::asm!(concat!("mrs {}, ", stringify!($id)), out(reg) val);
                             self.write_reg(Reg::from(iss.Rt()), val);
                         }
                     )*
+                    Ok(reg) => wrong_sysreg!("read", reg),
                     _ => wrong_sysreg!("read"),
                 }
             };

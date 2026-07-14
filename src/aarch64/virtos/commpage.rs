@@ -36,14 +36,14 @@ pub(super) fn init() {
     );
     PageTable::insert(
         COMMPAGE_BEGIN,
-        COMMPAGE_BEGIN.as_u64(),
         COMMPAGE_END - COMMPAGE_BEGIN,
+        Protection::READ,
         Protection::READ,
     );
     PageTable::insert(
         COMMPAGE_RO_BEGIN,
-        COMMPAGE_RO_BEGIN.as_u64(),
         COMMPAGE_RO_END - COMMPAGE_RO_BEGIN,
+        Protection::READ,
         Protection::READ,
     );
 }

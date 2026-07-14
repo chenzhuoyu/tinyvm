@@ -49,6 +49,15 @@ macro_rules! declare_friendly_enum {
                     pub const fn [< $name:snake >](self) -> $real_ty {
                         self as $real_ty
                     }
+
+                    #[allow(dead_code)]
+                    #[inline]
+                    pub const fn [< is_ $name:snake >](value: $repr_ty) -> bool {
+                        match value {
+                            $( [< $prefix $item >] => true, )*
+                            _ => false,
+                        }
+                    }
                 }
 
                 impl From<$repr_ty> for $name {

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use parking_lot::RwLock;
 
@@ -53,7 +53,7 @@ impl<F: Fn(Uintptr, &mut MmioRequest)> MmioHandler for F {
 
 struct MmioRegion {
     size: usize,
-    handler: Box<dyn MmioHandler>,
+    handler: Arc<dyn MmioHandler>,
 }
 
 unsafe impl Send for MmioRegion {}
@@ -96,7 +96,49 @@ pub fn register(addr: Uintptr, size: usize, handler: impl MmioHandler + 'static)
         addr,
         MmioRegion {
             size,
-            handler: Box::new(handler),
+            handler: Arc::new(handler),
         },
     );
+}
+
+pub fn unregister(addr: Uintptr, size: usize) {
+    let mut keys = vec![];
+    let mut mmio = MMIO.write();
+
+    /* collect memory regions covered by requests */
+    for (&base, region) in mmio.range(..addr + size).rev() {
+        if base + region.size > addr {
+            keys.push(base);
+        } else {
+            break;
+        }
+    }
+
+    /* adjust the interval, split if needed */
+    for base in keys {
+        let item = mmio.remove(&base).unwrap_or_else(|| unreachable!());
+        let (mlen, handler) = (item.size, item.handler);
+
+        /* the left side is sticking out */
+        if base < addr {
+            mmio.insert(
+                base,
+                MmioRegion {
+                    size: addr - base,
+                    handler: handler.clone(),
+                },
+            );
+        }
+
+        /* the right side is sticking out */
+        if base + mlen > addr + size {
+            mmio.insert(
+                addr + size,
+                MmioRegion {
+                    size: (base + mlen) - (addr + size),
+                    handler,
+                },
+            );
+        }
+    }
 }

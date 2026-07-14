@@ -32,7 +32,7 @@ use crate::{
     },
 };
 
-type LoadFn = Box<dyn FnMut(Uintptr, usize, Protection) + Send>;
+type LoadFn = Box<dyn FnMut(Uintptr, usize, Protection, Protection) + Send>;
 type LoadHandler = Option<LoadFn>;
 
 #[repr(C)]
@@ -111,15 +111,18 @@ impl Image {
         Err(anyhow!("cannot find valid architecture in fat binary"))
     }
 
-    fn notify_load_handler(addr: Uintptr, size: usize, prot: Protection) {
+    fn notify_load_handler(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
         if let Some(handler) = LDFN.lock().as_deref_mut() {
-            handler(addr, size, prot);
+            handler(addr, size, prot, max_prot);
         }
     }
 }
 
 impl Image {
-    pub fn set_load_handler(f: impl FnMut(Uintptr, usize, Protection) + Send + 'static) {
+    pub fn set_load_handler<F>(f: F)
+    where
+        F: FnMut(Uintptr, usize, Protection, Protection) + Send + 'static,
+    {
         *LDFN.lock() = Some(Box::new(f));
     }
 }
@@ -171,8 +174,11 @@ impl Image {
                     if seg.name() != b"__PAGEZERO" {
                         min_addr = min_addr.min(seg.vmaddr.value());
                         max_addr = max_addr.max(seg.vmaddr.value() + seg.vmsize.value());
+                        segments.push(seg);
+                    } else {
+                        assert_eq!(seg.vmaddr.value(), 0, "__PAGEZERO not at addr 0");
+                        assert_eq!(seg.initprot.value(), 0, "__PAGEZERO is not guared");
                     }
-                    segments.push(seg);
                 }
                 LoadCommandVariant::EntryPoint(cmd) => {
                     if entry_point.is_none() {
@@ -202,22 +208,16 @@ impl Image {
 
         /* load the segments */
         for &seg in &segments {
-            let mut vma_addr = Uintptr::new(seg.vmaddr.usize());
-            let mut vma_next = vma_addr + seg.vmsize.usize();
+            let vma_addr = Uintptr::new(seg.vmaddr.usize()) + slide;
+            let vma_next = vma_addr + seg.vmsize.usize() + slide;
 
-            /* slide and load the segment into memory, except "__PAGEZERO" */
-            if seg.name() != b"__PAGEZERO" {
-                vma_addr += slide;
-                vma_next += slide;
-
-                /* copy content into place */
-                unsafe {
-                    libc::memcpy(
-                        vma_addr.as_ptr(),
-                        file.as_ptr().add(seg.fileoff.usize()) as *const libc::c_void,
-                        seg.filesize.usize(),
-                    );
-                }
+            /* copy content into place */
+            unsafe {
+                libc::memcpy(
+                    vma_addr.as_ptr(),
+                    file.as_ptr().add(seg.fileoff.usize()) as *const libc::c_void,
+                    seg.filesize.usize(),
+                );
             }
 
             /* log the segment */
@@ -233,27 +233,27 @@ impl Image {
 
         /* set the segments with correct protection */
         for &seg in &segments {
-            if seg.name() != b"__PAGEZERO" {
-                if let Some(prot) = Protection::from_bits(seg.initprot.value() as u64) {
-                    let size = seg.vmsize.usize();
-                    let addr = seg.vmaddr.usize() + slide;
-                    let offs = addr - image.addr().addr();
-                    image.view(offs..offs + size).protect(prot);
-                    Self::notify_load_handler(addr.into(), size, prot);
-                } else {
-                    return Err(anyhow!("invalid initprot: 0x{:x}", seg.initprot.value()));
-                }
-            } else {
-                assert_eq!(seg.vmaddr.value(), 0, "__PAGEZERO not at addr 0");
-                assert_eq!(seg.initprot.value(), 0, "__PAGEZERO is not guared");
-                Self::notify_load_handler(Uintptr::NIL, seg.vmsize.usize(), Protection::NONE);
-            }
+            let Some(prot) = Protection::from_bits(seg.initprot.value() as u64) else {
+                return Err(anyhow!("invalid initprot: 0x{:x}", seg.initprot.value()));
+            };
+            let Some(max_prot) = Protection::from_bits(seg.maxprot.value() as u64) else {
+                return Err(anyhow!("invalid initprot: 0x{:x}", seg.maxprot.value()));
+            };
+            let size = seg.vmsize.usize();
+            let addr = seg.vmaddr.usize() + slide;
+            let offs = addr - image.addr().addr();
+            image.view(offs..offs + size).protect(prot);
+            Self::notify_load_handler(addr.into(), size, prot, max_prot);
         }
 
         /* notify the debugger, if present */
         if let Some(lldb_image_notifier) = *LLDB_IMAGE_NOTIFIER {
-            let name = CString::new(path.as_os_str().as_bytes())
-                .map_or(Cow::Borrowed(c"(???)"), Cow::Owned);
+            let name = {
+                match CString::new(path.as_os_str().as_bytes()) {
+                    Ok(str) => Cow::Owned(str),
+                    Err(..) => Cow::Borrowed(c"(???)"),
+                }
+            };
             let info = DyldImageInfo {
                 addr: image.addr(),
                 path: Sz::from(name.as_ptr()),

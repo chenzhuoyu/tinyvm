@@ -293,8 +293,7 @@ impl Drop for Memory {
 
 impl Debug for Memory {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let end = self.addr + self.size;
-        write!(f, "memory({:p}-{:p})", self.addr, end)
+        write!(f, "{:p}-{:p}", self.addr, self.addr + self.size)
     }
 }
 
@@ -326,7 +325,7 @@ impl Addressable for Memory {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct MemoryView<'m> {
     size: usize,
     addr: Uintptr,
@@ -351,6 +350,12 @@ impl Buf for MemoryView<'_> {
     }
 }
 
+impl Debug for MemoryView<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "{:p}-{:p}", self.addr, self.addr + self.size)
+    }
+}
+
 impl Addressable for MemoryView<'_> {
     #[inline]
     fn size(&self) -> usize {
@@ -363,11 +368,16 @@ impl Addressable for MemoryView<'_> {
     }
 }
 
-#[derive(Debug)]
 pub struct MemoryViewMut<'m> {
     size: usize,
     addr: Uintptr,
     _ref: PhantomData<&'m mut Memory>,
+}
+
+impl Debug for MemoryViewMut<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "{:p}-{:p}", self.addr, self.addr + self.size)
+    }
 }
 
 unsafe impl BufMut for MemoryViewMut<'_> {

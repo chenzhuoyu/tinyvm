@@ -5,26 +5,22 @@ version = "0.1.0"
 
 [dependencies]
 anyhow             = "1.0"
-bit-set            = "0.10"
-bitflags           = "2.11"
-bytemuck           = { version = "1.25", features = ["derive"] }
-bytes              = "1.11"
+bitflags           = "2.13"
+bytes              = "1.12"
 clap               = { version = "4.6", features = ["derive"] }
 fn-ptr             = "0.9"
-leb128             = "0.2"
 libc               = "0.2"
 object             = "0.39"
 parking_lot        = "0.12"
 paste              = "1.0"
-rhexdump           = "0.2"
 soft-canonicalize  = "0.5"
 tracing            = "0.1"
 tracing-core       = "0.1"
 tracing-subscriber = { version = "0.3", features = ["std", "env-filter"] }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
-disarm64      = "0.1"
-disarm64_defn = "0.1"
+disarm64      = "0.2"
+disarm64_defn = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 mach2 = "0.6"

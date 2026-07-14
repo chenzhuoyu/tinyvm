@@ -11,7 +11,8 @@ _virtos_start:
     eret
 .set idx, idx + 1
 .endr
-.balign 16
+
+.balign 128
 .L_flush_tlb:
     dsb     ishst
     cmp     x17, #0x200000

@@ -147,7 +147,7 @@ define_bit_field! {
 
 impl SysRegTrapISS {
     #[inline]
-    pub fn sys_reg(self) -> SysReg {
+    pub fn sys_reg(self) -> Result<SysReg, u16> {
         SysReg::new(
             self.Op0() as u16,
             self.Op1() as u16,

@@ -7,6 +7,8 @@ pub mod syscall;
 pub mod virtos;
 pub mod vm;
 
+use std::io::Error as IoError;
+
 use cpu::Cpu;
 use paging::PageTable;
 use vm::Vm;
@@ -58,8 +60,16 @@ struct InitStackFrame {
 }
 
 #[inline]
-fn on_load(addr: Uintptr, size: usize, prot: Protection) {
-    PageTable::insert(addr, addr.as_u64(), size, prot);
+fn on_load(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
+    if unsafe { libc::mprotect(addr.as_ptr(), size, prot.bits() as i32) } != 0 {
+        panic!(
+            "cannot protect memory {addr:p}-{end:p}: {err}",
+            end = addr + size,
+            err = IoError::last_os_error()
+        );
+    }
+    Vm::protect(addr, size, prot);
+    PageTable::insert(addr, size, prot, max_prot);
 }
 
 pub fn vm_exec() -> Unit {
@@ -72,19 +82,8 @@ pub fn vm_exec() -> Unit {
     let frame = stack.addr().as_mut::<InitStackFrame>();
 
     /* add the stack into page table */
-    PageTable::insert(
-        stack.addr(),
-        stack.addr().as_u64(),
-        stack.size(),
-        Protection::RW,
-    );
-
-    /* log the stack range */
-    tracing::debug!(
-        "Stack is mapped at {:p}-{:p}",
-        stack.addr(),
-        stack.addr() + stack.size()
-    );
+    tracing::debug!("Stack is mapped at {stack:?}");
+    PageTable::insert(stack.addr(), stack.size(), Protection::RW, Protection::RW);
 
     /* load dyld and the target image */
     let dyld = Image::dyld().entry.as_u64();

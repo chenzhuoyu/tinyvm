@@ -846,7 +846,10 @@ declare_friendly_enum! {
 
 impl SysReg {
     #[inline]
-    pub fn new(op0: u16, op1: u16, crn: u16, crm: u16, op2: u16) -> Self {
-        Self::from(mksreg(op0, op1, crn, crm, op2))
+    pub fn new(op0: u16, op1: u16, crn: u16, crm: u16, op2: u16) -> Result<Self, u16> {
+        match mksreg(op0, op1, crn, crm, op2) {
+            value if Self::is_sys_reg(value) => Ok(Self::from(value)),
+            value => Err(value),
+        }
     }
 }

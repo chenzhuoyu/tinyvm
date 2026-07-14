@@ -20,7 +20,7 @@ fn virtos_code() -> &'static [u8] {
 }
 
 pub enum Vm {}
-pub const IRQ_STUBS: Uintptr = Uintptr::new(0x7fff_0000_0000);
+static mut IRQ_STUBS: Uintptr = Uintptr::NIL;
 
 impl Vm {
     pub fn init() {
@@ -35,23 +35,22 @@ impl Vm {
         let page = Memory::from_data(code).map(Protection::RX);
         let (phys, size) = page.into_parts();
 
+        /* set the IRQ stubs address */
+        unsafe {
+            IRQ_STUBS = phys;
+            tracing::debug!("IRQ Stubs are loaded into {:p}-{:p}", phys, phys + size);
+        }
+
         /* initialize the page table */
         PageTable::init();
-        PageTable::insert(phys, IRQ_STUBS.as_u64(), size, Protection::RX);
-
-        /* log the IRQ stubs range */
-        tracing::debug!(
-            "IRQ Stubs are loaded into {:p}-{:p}",
-            IRQ_STUBS,
-            IRQ_STUBS + size,
-        );
+        PageTable::insert(phys, size, Protection::RX, Protection::RX);
     }
 }
 
 impl Vm {
     #[inline]
-    pub const fn irq_stubs() -> Uintptr {
-        IRQ_STUBS
+    pub fn irq_stubs() -> Uintptr {
+        unsafe { IRQ_STUBS }
     }
 }
 

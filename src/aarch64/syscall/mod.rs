@@ -86,7 +86,6 @@ pub struct Syscall<'p> {
     cpu: &'p Cpu,
     args: [u64; 9],
     spsr: u64,
-    nzcv: u64,
 }
 
 impl<'p> Syscall<'p> {
@@ -122,30 +121,29 @@ impl<'p> Syscall<'p> {
             num,
             cpu,
             args,
-            spsr,
-            nzcv: 0,
+            spsr: spsr & !PSTATE_NZCV,
         }
     }
 }
 
 impl Syscall<'_> {
     #[inline]
-    fn forward(&mut self) {
+    fn syscall(num: i64, args: &mut [u64; 9], nzcv: &mut u64) {
         unsafe {
             std::arch::asm!(
                 "svc #0x80",
                 "mrs {}, NZCV",
-                out(reg) self.nzcv,
-                in("x16") self.num,
-                inout("x0") self.args[0],
-                inout("x1") self.args[1],
-                in("x2") self.args[2],
-                in("x3") self.args[3],
-                in("x4") self.args[4],
-                in("x5") self.args[5],
-                in("x6") self.args[6],
-                in("x7") self.args[7],
-                in("x8") self.args[8],
+                out(reg) *nzcv,
+                in("x16") num,
+                inout("x0") args[0],
+                inout("x1") args[1],
+                in("x2") args[2],
+                in("x3") args[3],
+                in("x4") args[4],
+                in("x5") args[5],
+                in("x6") args[6],
+                in("x7") args[7],
+                in("x8") args[8],
             );
         }
     }
@@ -153,17 +151,24 @@ impl Syscall<'_> {
 
 impl Syscall<'_> {
     #[inline]
+    fn forward(&mut self) {
+        let mut nzcv = 0u64;
+        Self::syscall(self.num, &mut self.args, &mut nzcv);
+        self.spsr |= nzcv;
+    }
+
+    #[inline]
     fn bsd_error(&mut self, err: i32) {
         self.args[0] = err as u64;
         self.args[1] = 0;
-        self.nzcv |= PSTATE_C;
+        self.spsr |= PSTATE_C;
     }
 
     #[inline]
     fn bsd_result<T: BsdResult>(&mut self, ret: T) {
         self.args[0] = ret.as_result();
         self.args[1] = 0;
-        self.nzcv &= !PSTATE_C;
+        self.spsr &= !PSTATE_C;
     }
 }
 
@@ -259,16 +264,15 @@ impl Syscall<'_> {
             "{pads:15} => 0x{retv:x} (nzcv={nzcv})",
             pads = ' ',
             retv = self.args[0],
-            nzcv = Nzcv(self.nzcv)
+            nzcv = Nzcv(self.spsr)
         );
     }
 }
 
 impl Syscall<'_> {
     pub fn finalize(self) {
-        let spsr = (self.spsr & !PSTATE_NZCV) | self.nzcv;
-        self.cpu.write_sys_reg(SysReg::SPSR_EL1, spsr);
         self.cpu.write_reg(Reg::X0, self.args[0]);
         self.cpu.write_reg(Reg::X1, self.args[1]);
+        self.cpu.write_sys_reg(SysReg::SPSR_EL1, self.spsr);
     }
 }
