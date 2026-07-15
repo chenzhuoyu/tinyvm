@@ -18,6 +18,7 @@ pub enum MmioSize {
     Mem16,
     Mem32,
     Mem64,
+    Unknown,
 }
 
 impl MmioSize {
@@ -28,6 +29,7 @@ impl MmioSize {
             Self::Mem16 => 2,
             Self::Mem32 => 4,
             Self::Mem64 => 8,
+            Self::Unknown => 1,
         }
     }
 }
@@ -40,13 +42,19 @@ pub struct MmioRequest {
     pub kind: MmioKind,
 }
 
-pub trait MmioHandler {
-    fn handle(&self, pc: Uintptr, req: &mut MmioRequest);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MmioResponse {
+    Retry,
+    Advance,
 }
 
-impl<F: Fn(Uintptr, &mut MmioRequest)> MmioHandler for F {
+pub trait MmioHandler {
+    fn handle(&self, pc: Uintptr, req: &mut MmioRequest) -> MmioResponse;
+}
+
+impl<F: Fn(Uintptr, &mut MmioRequest) -> MmioResponse> MmioHandler for F {
     #[inline]
-    fn handle(&self, pc: Uintptr, req: &mut MmioRequest) {
+    fn handle(&self, pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
         self(pc, req)
     }
 }
@@ -62,14 +70,13 @@ unsafe impl Sync for MmioRegion {}
 /// MMIO memory regions registry.
 static MMIO: RwLock<BTreeMap<Uintptr, MmioRegion>> = RwLock::new(BTreeMap::new());
 
-pub fn dispatch(pc: Uintptr, req: &mut MmioRequest) -> Option<()> {
+pub fn dispatch(pc: Uintptr, req: &mut MmioRequest) -> Option<MmioResponse> {
     let mmio = MMIO.read();
     let (&addr, region) = mmio.range(..=req.addr).next_back()?;
 
     /* check if the registered range covers the requested range completely */
     if addr <= req.addr && req.addr + req.size.bytes() <= addr + region.size {
-        region.handler.handle(pc, req);
-        Some(())
+        Some(region.handler.handle(pc, req))
     } else {
         None
     }

@@ -11,7 +11,7 @@ use super::{
     syscall::Syscall,
     virtos::{
         HalProvider, irq_stubs,
-        mmio::{self, MmioKind, MmioRequest, MmioSize},
+        mmio::{self, MmioKind, MmioRequest, MmioResponse, MmioSize},
     },
 };
 use crate::{hv_call, utils::ptr::Uintptr};
@@ -148,60 +148,81 @@ impl Cpu {
     }
 
     fn handle_data_abort(&mut self, pc: Uintptr, iss: DataAbortISS, addr: Uintptr) {
-        if iss.ISV() != 1 {
-            unimplemented!("DATA_ABORT with !ISS.ISV: {:#?} {}", iss, disasm(pc));
+        if iss.CM() == 1 {
+            self.write_reg(Reg::PC, pc.as_u64() + 4);
+            return;
         }
-        let data = match iss.WnR() {
-            0 => 0u64,
-            1 => self.read_reg(Reg::from(iss.SRT())),
+        if iss.S1PTW() == 1 {
+            panic!("page table fault on state 1 translation lookup");
+        }
+        let mut kind = match iss.WnR() {
+            0 => MmioKind::Read,
+            1 => MmioKind::Write,
             _ => unreachable!(),
         };
-        let size = match iss.SAS() {
-            0b00 => MmioSize::Mem8,
-            0b01 => MmioSize::Mem16,
-            0b10 => MmioSize::Mem32,
-            0b11 => MmioSize::Mem64,
-            _ => unreachable!(),
+        let mut req = {
+            if iss.ISV() == 1 {
+                let data = match iss.WnR() {
+                    0 => 0u64,
+                    1 => self.read_reg(Reg::from(iss.SRT())),
+                    _ => unreachable!(),
+                };
+                let size = match iss.SAS() {
+                    0b00 => MmioSize::Mem8,
+                    0b01 => MmioSize::Mem16,
+                    0b10 => MmioSize::Mem32,
+                    0b11 => MmioSize::Mem64,
+                    _ => unreachable!(),
+                };
+                if iss.AR() == 1 {
+                    match kind {
+                        MmioKind::Read => kind = MmioKind::ReadAtomic,
+                        MmioKind::Write => kind = MmioKind::WriteAtomic,
+                        _ => unreachable!(),
+                    }
+                }
+                MmioRequest {
+                    data,
+                    addr,
+                    size,
+                    kind,
+                }
+            } else {
+                MmioRequest {
+                    addr,
+                    kind,
+                    data: 0,
+                    size: MmioSize::Unknown,
+                }
+            }
         };
-        let kind = match (iss.WnR(), iss.AR()) {
-            (0, 0) => MmioKind::Read,
-            (0, 1) => MmioKind::ReadAtomic,
-            (1, 0) => MmioKind::Write,
-            (1, 1) => MmioKind::WriteAtomic,
-            _ => unreachable!(),
-        };
-        let mut req = MmioRequest {
-            data,
-            addr,
-            size,
-            kind,
-        };
-        if mmio::dispatch(pc, &mut req).is_none() {
+        let Some(resp) = mmio::dispatch(pc, &mut req) else {
             panic!(
                 "unhandled MMIO request: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
                 insn = disasm(self.read_reg(Reg::PC))
             );
-        }
-        if iss.WnR() == 1 {
-            self.write_reg(Reg::PC, pc.as_u64() + 4);
-            return;
-        }
-        let mut data = match (iss.SAS(), iss.SSE()) {
-            (0b00, 0b0) => req.data & (u8::MAX as u64),
-            (0b01, 0b0) => req.data & (u16::MAX as u64),
-            (0b10, 0b0) => req.data & (u32::MAX as u64),
-            (0b11, 0b0) => req.data,
-            (0b00, 0b1) => req.data as i8 as u64,
-            (0b01, 0b1) => req.data as i16 as u64,
-            (0b10, 0b1) => req.data as i32 as u64,
-            (0b11, 0b1) => req.data,
-            _ => unreachable!(),
         };
-        if iss.SF() == 0 {
-            data &= u32::MAX as u64;
+        match resp {
+            MmioResponse::Retry => return,
+            MmioResponse::Advance => self.write_reg(Reg::PC, pc.as_u64() + 4),
         }
-        self.write_reg(Reg::from(iss.SRT()), data);
-        self.write_reg(Reg::PC, pc.as_u64() + 4);
+        if iss.ISV() != 0 && iss.WnR() == 0 {
+            let mut data = match (iss.SAS(), iss.SSE()) {
+                (0b00, 0b0) => req.data & (u8::MAX as u64),
+                (0b01, 0b0) => req.data & (u16::MAX as u64),
+                (0b10, 0b0) => req.data & (u32::MAX as u64),
+                (0b11, 0b0) => req.data,
+                (0b00, 0b1) => req.data as i8 as u64,
+                (0b01, 0b1) => req.data as i16 as u64,
+                (0b10, 0b1) => req.data as i32 as u64,
+                (0b11, 0b1) => req.data,
+                _ => unreachable!(),
+            };
+            if iss.SF() == 0 {
+                data &= u32::MAX as u64;
+            }
+            self.write_reg(Reg::from(iss.SRT()), data);
+        }
     }
 
     fn handle_sysreg_trap(&mut self, iss: SysRegTrapISS) {

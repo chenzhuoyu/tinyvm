@@ -196,10 +196,12 @@ impl Syscall<'_> {
             (@HANDLER $name:ident $_:ident @()) => { BsdSyscall::$name };
         }
         handle_syscall! {
+            msync(addr, len, flags),
             munmap(addr, len),
             mprotect(addr, len, prot),
             mmap(addr, len, prot, flags, fd, pos),
             shared_region_check_np(start_address),
+            msync_nocancel(addr, len, flags),
             shared_region_map_and_slide_2_np(files_count, files, mappings_count, mappings_u),
             map_with_linking_np(regions, region_count, link_info, link_info_size)
         }

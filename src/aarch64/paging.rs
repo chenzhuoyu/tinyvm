@@ -485,8 +485,8 @@ impl PageTable {
     }
 
     #[inline]
-    pub fn insert(phys: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
-        if let Err(err) = Self::map(phys, size, prot, max_prot) {
+    pub fn insert(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
+        if let Err(err) = Self::map(addr, size, prot, max_prot) {
             panic!("cannot insert page table entry: {err}");
         }
     }

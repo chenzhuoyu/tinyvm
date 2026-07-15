@@ -42,18 +42,29 @@ impl AsKernReturn for PageFault {
 }
 
 pub fn _kernelrpc_mach_vm_allocate_trap(
-    _hal: &impl HalProvider,
+    hal: &impl HalProvider,
     target: mach_port_name_t,
     address: *mut mach_vm_offset_t,
     size: mach_vm_size_t,
     flags: i32,
 ) -> kern_return_t {
-    if target != *TASK_SELF {
-        unsafe { mach_vm_allocate(target, address, size, flags) }
-    } else {
-        // TODO (chenzhuoyu): implement this
-        todo!()
+    let task = *TASK_SELF;
+    let result = unsafe { mach_vm_allocate(target, address, size, flags) };
+
+    /* not targeting self, just forward the result */
+    if target != task {
+        return result;
     }
+
+    /* get the mapped address */
+    let size = align_to_page(size as usize);
+    let addr = unsafe { Uintptr::from(*address) };
+
+    /* insert into guest address space and page table */
+    PageTable::insert(addr, size, Protection::RW, Protection::all());
+    hal.flush_tlb(addr.as_u64(), size / PAGE_SIZE);
+    Vm::map(addr, size, Protection::RW);
+    KERN_SUCCESS
 }
 
 pub fn _kernelrpc_mach_vm_deallocate_trap(
@@ -157,6 +168,6 @@ pub fn _kernelrpc_mach_vm_map_trap(
     /* map to guest address space & insert into page table, then flush TLB */
     PageTable::insert(addr, size, prot, Protection::all());
     hal.flush_tlb(addr.as_u64(), size / PAGE_SIZE);
-    Vm::map(addr, addr.as_u64(), size, prot);
+    Vm::map(addr, size, prot);
     KERN_SUCCESS
 }

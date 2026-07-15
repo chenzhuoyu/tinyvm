@@ -218,7 +218,7 @@ impl UnmappedMemory {
     #[inline]
     pub fn map(self, prot: Protection) -> Memory {
         let (addr, size) = self.into_parts();
-        Vm::map(addr, addr.as_u64(), size, prot);
+        Vm::map(addr, size, prot);
         Memory { addr, size }
     }
 }

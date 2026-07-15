@@ -13,8 +13,8 @@ impl Vm {
 
 impl Vm {
     #[inline]
-    pub fn map(addr: Uintptr, base: u64, size: usize, prot: Protection) {
-        hv_call!(hv_vm_map(addr.as_ptr(), base, size, prot.bits()));
+    pub fn map(addr: Uintptr, size: usize, prot: Protection) {
+        hv_call!(hv_vm_map(addr.as_ptr(), addr.as_u64(), size, prot.bits()));
     }
 
     #[inline]
