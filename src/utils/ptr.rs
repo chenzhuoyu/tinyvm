@@ -14,72 +14,72 @@ impl Uintptr {
 }
 
 impl Uintptr {
-    #[inline]
+    #[inline(always)]
     pub const fn new(addr: usize) -> Self {
         Self(addr)
     }
 }
 
 impl Uintptr {
-    #[inline]
+    #[inline(always)]
     pub fn from_fn(ptr: impl FnPtr) -> Self {
         Self(ptr.addr())
     }
 }
 
 impl Uintptr {
-    #[inline]
+    #[inline(always)]
     pub const fn addr(self) -> usize {
         self.0
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn is_nil(self) -> bool {
         self.0 == 0
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn is_aligned_to(self, size: usize) -> bool {
         self.0.is_multiple_of(size)
     }
 }
 
 impl Uintptr {
-    #[inline]
+    #[inline(always)]
     pub const fn as_u64(self) -> u64 {
         self.0 as u64
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn as_ptr<T>(self) -> *mut T {
         self.0 as *mut T
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn as_ref<'p, T>(self) -> &'p T {
         unsafe { &*self.as_ptr() }
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn as_mut<'p, T>(self) -> &'p mut T {
         unsafe { &mut *self.as_ptr() }
     }
 }
 
 impl Uintptr {
-    #[inline]
+    #[inline(always)]
     pub fn as_fn<F: FnPtr>(self) -> F {
         unsafe { F::from_ptr(self.0 as UntypedFnPtr) }
     }
 }
 
 impl Uintptr {
-    #[inline]
+    #[inline(always)]
     pub fn read<T>(self) -> T {
         unsafe { (self.0 as *const T).read() }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn write<T>(self, value: T) {
         unsafe { (self.0 as *mut T).write(value) }
     }
@@ -92,14 +92,14 @@ macro_rules! impl_operator {
                 impl $op<$ty> for Uintptr {
                     type Output = Self;
 
-                    #[inline]
+                    #[inline(always)]
                     fn [< $op:lower >](self, rhs: $ty) -> Self {
                         Self(self.0.[< wrapping_ $op:lower $($suffix)? >](rhs as $rty))
                     }
                 }
 
                 impl [< $op Assign >]<$ty> for Uintptr {
-                    #[inline]
+                    #[inline(always)]
                     fn [< $op:lower _assign >](&mut self, rhs: $ty) {
                         *self = $op::[< $op:lower >](*self, rhs);
                     }
@@ -122,28 +122,28 @@ impl Pointer for Uintptr {
 }
 
 impl From<u64> for Uintptr {
-    #[inline]
+    #[inline(always)]
     fn from(addr: u64) -> Self {
         Self::from(addr as usize)
     }
 }
 
 impl From<usize> for Uintptr {
-    #[inline]
+    #[inline(always)]
     fn from(addr: usize) -> Self {
         Self::new(addr)
     }
 }
 
 impl<T> From<*mut T> for Uintptr {
-    #[inline]
+    #[inline(always)]
     fn from(ptr: *mut T) -> Self {
         Self::from(ptr.addr())
     }
 }
 
 impl<T> From<*const T> for Uintptr {
-    #[inline]
+    #[inline(always)]
     fn from(ptr: *const T) -> Self {
         Self::from(ptr.addr())
     }

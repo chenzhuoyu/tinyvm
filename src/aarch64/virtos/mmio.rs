@@ -112,7 +112,7 @@ pub fn unregister(addr: Uintptr, size: usize) {
     let mut keys = vec![];
     let mut mmio = MMIO.write();
 
-    /* collect memory regions covered by requests */
+    /* collect memory regions covered by the specified range */
     for (&base, region) in mmio.range(..addr + size).rev() {
         if base + region.size > addr {
             keys.push(base);

@@ -107,7 +107,7 @@ impl Debug for semun_t {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct shared_file_mapping_slide_np_ut {
-	pub sms_address: libc::mach_vm_address_t,
+	pub sms_address: Uintptr,
 	pub sms_size: libc::mach_vm_size_t,
 	pub sms_file_offset: libc::mach_vm_offset_t,
 	pub sms_slide_size: Uintptr,
