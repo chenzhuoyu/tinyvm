@@ -106,7 +106,7 @@ impl Debug for semun_t {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct shared_file_mapping_slide_np_ut {
+pub struct shared_mapping_np {
 	pub sms_address: Uintptr,
 	pub sms_size: libc::mach_vm_size_t,
 	pub sms_file_offset: libc::mach_vm_offset_t,
@@ -331,7 +331,7 @@ TYPE_MAP = {
     'sae_connid_t'                    : 'libc::sae_connid_t',
     'sem_t'                           : 'libc::sem_t',
     'semun_t'                         : 'semun_t',
-    'shared_file_mapping_slide_np_ut' : 'shared_file_mapping_slide_np_ut',
+    'shared_file_mapping_slide_np_ut' : 'shared_mapping_np',
     'siginfo_t'                       : 'libc::siginfo_t',
     'sigset_t'                        : 'libc::sigset_t',
     'size_t'                          : 'usize',

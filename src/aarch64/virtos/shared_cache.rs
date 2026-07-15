@@ -5,7 +5,7 @@ use std::{
 };
 
 use super::HalProvider;
-use crate::aarch64::syscall::bsd::{shared_file_mapping_slide_np_ut, shared_file_np};
+use crate::aarch64::syscall::bsd::{shared_file_np, shared_mapping_np};
 
 /// The global shared cache mappings
 static SHARED_CACHE: AtomicPtr<()> = AtomicPtr::null();
@@ -30,12 +30,34 @@ pub fn shared_region_map_and_slide_2_np(
     files_count: u32,
     files: *mut shared_file_np,
     mappings_count: u32,
-    mappings_u: *mut shared_file_mapping_slide_np_ut,
+    mappings_u: *mut shared_mapping_np,
 ) -> IoResult<()> {
-    todo!(
-        "shared_region_map_and_slide_2_np(files_count={files_count}, files={files:p}, \
-         mappings_count={mappings_count}, mappings_u={mappings_u:p})"
-    );
+    let files = unsafe { std::slice::from_raw_parts(files, files_count as usize) };
+    let mappings = unsafe { std::slice::from_raw_parts(mappings_u, mappings_count as usize) };
+
+    /* empty file list or mappings list, nothing to do */
+    if files.is_empty() || mappings.is_empty() {
+        return Ok(());
+    }
+
+    /* get the mappings iterator */
+    let miter = mappings.iter();
+    let mut iter = miter.copied();
+
+    /* process each file */
+    for file in files {
+        eprintln!("file={file:#?}");
+        for _ in 0..file.sf_mappings_count {
+            let map = iter.next().expect("no more mappings");
+            for line in format!("map={map:#?}").lines() {
+                eprintln!("    {line}");
+            }
+        }
+    }
+
+    assert!(iter.next().is_none(), "more mappings than needed");
+    // todo!("shared_region_map_and_slide_2_np()");
+    Ok(())
 }
 
 pub fn map_with_linking_np(

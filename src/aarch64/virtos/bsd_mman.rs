@@ -50,8 +50,15 @@ impl Drop for FileMap {
 
 impl MmioHandler for FileMap {
     fn handle(&self, pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
-        let offs = (req.addr - self.base) & !PAGE_SIZE;
+        let offs = (req.addr - self.base) & !(PAGE_SIZE - 1);
         let base = self.base + offs;
+
+        /* sanity check the calculated address */
+        debug_assert!(
+            base <= req.addr && req.addr < base + PAGE_SIZE,
+            "calculated page address {base:p} does not contain the requested address {addr:p}",
+            addr = req.addr,
+        );
 
         /* get the file handle */
         let mut buf = base.as_mut::<[u8; PAGE_SIZE]>().as_mut_slice();

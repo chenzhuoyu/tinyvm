@@ -101,7 +101,7 @@ impl Debug for semun_t {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct shared_file_mapping_slide_np_ut {
+pub struct shared_mapping_np {
     pub sms_address: Uintptr,
     pub sms_size: libc::mach_vm_size_t,
     pub sms_file_offset: libc::mach_vm_offset_t,
@@ -11898,7 +11898,7 @@ pub struct ARG_shared_region_map_and_slide_2_np {
     pub files_count: u32,
     pub files: *mut shared_file_np,
     pub mappings_count: u32,
-    pub mappings_u: *mut shared_file_mapping_slide_np_ut,
+    pub mappings_u: *mut shared_mapping_np,
 }
 
 impl Arg for ARG_shared_region_map_and_slide_2_np {
@@ -11908,7 +11908,7 @@ impl Arg for ARG_shared_region_map_and_slide_2_np {
             files_count: args[0] as u32,
             files: args[1] as *mut shared_file_np,
             mappings_count: args[2] as u32,
-            mappings_u: args[3] as *mut shared_file_mapping_slide_np_ut,
+            mappings_u: args[3] as *mut shared_mapping_np,
         }
     }
 }
