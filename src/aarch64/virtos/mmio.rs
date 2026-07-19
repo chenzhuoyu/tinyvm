@@ -1,8 +1,16 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    io::{Error as IoError, Result as IoResult},
+    sync::Arc,
+};
 
 use parking_lot::RwLock;
 
-use crate::utils::ptr::Uintptr;
+use crate::{
+    aarch64::{paging::PAGE_SIZE, vm::Vm},
+    mem::Protection,
+    utils::{ptr::Uintptr, size::align_to_page},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MmioKind {
@@ -10,6 +18,7 @@ pub enum MmioKind {
     ReadAtomic,
     Write,
     WriteAtomic,
+    Execution,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,7 +69,7 @@ impl<F: Fn(Uintptr, &mut MmioRequest) -> MmioResponse> MmioHandler for F {
 }
 
 struct MmioRegion {
-    size: usize,
+    end: Uintptr,
     handler: Arc<dyn MmioHandler>,
 }
 
@@ -70,29 +79,66 @@ unsafe impl Sync for MmioRegion {}
 /// MMIO memory regions registry.
 static MMIO: RwLock<BTreeMap<Uintptr, MmioRegion>> = RwLock::new(BTreeMap::new());
 
-pub fn dispatch(pc: Uintptr, req: &mut MmioRequest) -> Option<MmioResponse> {
+pub fn handle(pc: Uintptr, req: &mut MmioRequest) -> Option<MmioResponse> {
     let mmio = MMIO.read();
     let (&addr, region) = mmio.range(..=req.addr).next_back()?;
 
     /* check if the registered range covers the requested range completely */
-    if addr <= req.addr && req.addr + req.size.bytes() <= addr + region.size {
+    if addr <= req.addr && req.addr + req.size.bytes() <= region.end {
         Some(region.handler.handle(pc, req))
     } else {
         None
     }
 }
 
+pub fn protect(addr: Uintptr, size: usize, prot: Protection) -> IoResult<()> {
+    let size = align_to_page(size);
+    let mut last = addr + size;
+
+    /* address should align to page */
+    if !addr.is_aligned_to(PAGE_SIZE) {
+        return Err(IoError::from_raw_os_error(libc::EINVAL));
+    }
+
+    /* scan all regions backwards, protect all gaps */
+    for (&base, region) in MMIO.read().range(..last).rev() {
+        if region.end > addr {
+            if region.end < last {
+                Vm::protect(region.end, last - region.end, prot);
+            }
+            last = base;
+        } else {
+            break;
+        }
+    }
+
+    /* the range is entirely covered by MMIO regions */
+    if last <= addr {
+        return Ok(());
+    }
+
+    /* there are still remaining pages */
+    Vm::protect(addr, last - addr, prot);
+    Ok(())
+}
+
 pub fn register(addr: Uintptr, size: usize, handler: impl MmioHandler + 'static) {
     let mut mmio = MMIO.write();
     let region = mmio.range(..addr + size).next_back();
 
+    /* check the address alignment */
+    assert!(
+        addr.is_aligned_to(PAGE_SIZE) && size.is_multiple_of(PAGE_SIZE),
+        "MMIO region should be page aligned"
+    );
+
     /* check if the memory region overlaps */
     if let Some((&base, region)) = region {
         assert!(
-            base + region.size <= addr,
+            region.end <= addr,
             "MMIO region overlaps: {r1s:p}-{r1e:p} && {r2s:p}-{r2e:p}",
             r1s = base,
-            r1e = base + region.size,
+            r1e = region.end,
             r2s = addr,
             r2e = addr + size
         );
@@ -102,7 +148,7 @@ pub fn register(addr: Uintptr, size: usize, handler: impl MmioHandler + 'static)
     mmio.insert(
         addr,
         MmioRegion {
-            size,
+            end: addr + size,
             handler: Arc::new(handler),
         },
     );
@@ -114,7 +160,7 @@ pub fn unregister(addr: Uintptr, size: usize) {
 
     /* collect memory regions covered by the specified range */
     for (&base, region) in mmio.range(..addr + size).rev() {
-        if base + region.size > addr {
+        if region.end > addr {
             keys.push(base);
         } else {
             break;
@@ -123,29 +169,25 @@ pub fn unregister(addr: Uintptr, size: usize) {
 
     /* adjust the interval, split if needed */
     for base in keys {
-        let item = mmio.remove(&base).unwrap_or_else(|| unreachable!());
-        let (mlen, handler) = (item.size, item.handler);
-
-        /* the left side is sticking out */
-        if base < addr {
-            mmio.insert(
-                base,
-                MmioRegion {
-                    size: addr - base,
-                    handler: handler.clone(),
-                },
-            );
-        }
-
-        /* the right side is sticking out */
-        if base + mlen > addr + size {
-            mmio.insert(
-                addr + size,
-                MmioRegion {
-                    size: (base + mlen) - (addr + size),
-                    handler,
-                },
-            );
+        if let Some(item) = mmio.remove(&base) {
+            if base < addr {
+                mmio.insert(base, {
+                    MmioRegion {
+                        end: addr,
+                        handler: item.handler.clone(),
+                    }
+                });
+            }
+            if item.end > addr + size {
+                mmio.insert(addr + size, {
+                    MmioRegion {
+                        end: item.end,
+                        handler: item.handler,
+                    }
+                });
+            }
+        } else {
+            unsafe { std::intrinsics::unreachable() }
         }
     }
 }

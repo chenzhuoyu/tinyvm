@@ -1,13 +1,13 @@
 use std::{
     fs::File,
-    io::{Error as IoError, ErrorKind, Read, Result as IoResult, Seek, SeekFrom},
-    os::fd::FromRawFd,
+    io::{Error as IoError, Result as IoResult},
+    os::fd::{FromRawFd, OwnedFd},
 };
 
 use parking_lot::Mutex;
 
 use super::{
-    HalProvider,
+    HalProvider, faults, mem,
     mmio::{self, MmioHandler, MmioRequest, MmioResponse},
     tlb::TlbProvider,
 };
@@ -23,17 +23,15 @@ use crate::{
 struct FileMap {
     file: Mutex<File>,
     base: Uintptr,
-    prot: Protection,
     offset: usize,
     write_back: bool,
 }
 
 impl FileMap {
-    fn new(addr: Uintptr, prot: Protection, fd: i32, pos: libc::off_t, flags: i32) -> Self {
+    fn new(addr: Uintptr, fd: i32, pos: libc::off_t, flags: i32) -> Self {
         Self {
-            prot,
             base: addr,
-            file: unsafe { Mutex::new(File::from_raw_fd(libc::dup(fd))) },
+            file: unsafe { Mutex::new(File::from(OwnedFd::from_raw_fd(libc::dup(fd)))) },
             offset: pos as usize,
             write_back: flags & libc::MAP_SHARED != 0,
         }
@@ -50,37 +48,22 @@ impl Drop for FileMap {
 
 impl MmioHandler for FileMap {
     fn handle(&self, pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
-        let offs = (req.addr - self.base) & !(PAGE_SIZE - 1);
-        let base = self.base + offs;
-
-        /* sanity check the calculated address */
-        debug_assert!(
-            base <= req.addr && req.addr < base + PAGE_SIZE,
-            "calculated page address {base:p} does not contain the requested address {addr:p}",
-            addr = req.addr,
-        );
-
-        /* get the file handle */
-        let mut buf = base.as_mut::<[u8; PAGE_SIZE]>().as_mut_slice();
-        let mut file = self.file.lock();
-
-        /* seek to the specified offset */
-        file.seek(SeekFrom::Start((self.offset + offs) as u64))
-            .unwrap_or_else(|err| panic!("cannot seek mapped file at PC={pc:p}: {err}"));
-
-        /* populate one page, read as much as possible */
-        while !buf.is_empty() {
-            match file.read(buf) {
-                Ok(0) => break,
-                Ok(n) => buf = &mut buf[n..],
-                Err(ref e) if e.kind() == ErrorKind::Interrupted => {}
-                Err(e) => panic!("cannot read mapped file at PC={pc:p}: {e}"),
-            }
+        let prot = PageTable::lookup(req.addr).unwrap_or_else(|e| {
+            panic!(
+                "cannot lookup protection bits at {p:p}: [PC={pc:?}]: {e}",
+                p = req.addr
+            )
+        });
+        match faults::fetch_page(
+            req.addr,
+            self.base,
+            &mut *self.file.lock(),
+            prot,
+            self.offset,
+        ) {
+            Err(e) => panic!("cannot fetch page at {p:p}: [PC={pc:?}]: {e}", p = req.addr),
+            Ok(()) => MmioResponse::Retry,
         }
-
-        /* enable read & write on this page */
-        Vm::protect(base, PAGE_SIZE, self.prot);
-        MmioResponse::Retry
     }
 }
 
@@ -107,16 +90,22 @@ pub fn munmap(hal: &impl HalProvider, addr: Uintptr, len: usize) -> IoResult<()>
     }
 }
 
-pub fn mprotect(hal: &impl HalProvider, addr: Uintptr, len: usize, prot: i32) -> IoResult<()> {
-    if let Some(prot) = Protection::from_bits(prot as u64) {
-        let size = align_to_page(len);
-        PageTable::protect(addr, size, prot, false)?;
-        hal.flush_tlb(addr.as_u64(), size / PAGE_SIZE);
-        Vm::protect(addr, size, prot);
-        Ok(())
-    } else {
-        Err(IoError::from_raw_os_error(libc::EINVAL))
-    }
+pub fn mprotect(hal: &impl HalProvider, addr: Uintptr, len: usize, raw_prot: i32) -> IoResult<()> {
+    let base = addr.as_u64();
+    let size = align_to_page(len);
+    let num_pages = size / PAGE_SIZE;
+
+    /* parse protection bits */
+    let Some(prot) = Protection::from_bits(raw_prot as u64) else {
+        return Err(IoError::from_raw_os_error(libc::EINVAL));
+    };
+
+    /* modify the page table, then actually modify the host address space */
+    PageTable::protect(addr, size, prot, false)?;
+    mmio::protect(addr, size, prot)?;
+    mem::protect(addr, size, prot)?;
+    hal.flush_tlb(base, num_pages);
+    Ok(())
 }
 
 pub fn mmap(
@@ -143,7 +132,7 @@ pub fn mmap(
         if pos % (PAGE_SIZE as i64) != 0 {
             return Err(IoError::from_raw_os_error(libc::EINVAL));
         }
-        map_prot = libc::PROT_READ | libc::PROT_WRITE;
+        map_prot = libc::PROT_NONE;
         fd = 0;
     }
 
@@ -162,7 +151,7 @@ pub fn mmap(
 
     /* register file mappings as MMIO */
     if flags & libc::MAP_ANON == 0 {
-        let handler = FileMap::new(addr, prot, map_fd, pos, flags);
+        let handler = FileMap::new(addr, map_fd, pos, flags);
         mmio::register(addr, size, handler);
         vm_prot = Protection::NONE;
     }

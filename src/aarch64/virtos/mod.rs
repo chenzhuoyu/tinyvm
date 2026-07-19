@@ -2,7 +2,9 @@
 
 pub mod bsd_mman;
 pub mod commpage;
+pub mod faults;
 pub mod mach_vm;
+pub mod mem;
 pub mod mmio;
 pub mod shared_cache;
 pub mod task;

@@ -158,6 +158,21 @@ trait AsPageAttrs {
     fn nx(self) -> u64;
 }
 
+impl Protection {
+    #[inline]
+    fn from_ap_nx(ap: u64, nx: u64) -> Self {
+        match (ap, nx) {
+            (0b01, 0) => Self::all(),
+            (0b01, 1) => Self::RW,
+            (0b10, 0) => Self::EXEC,
+            (0b10, 1) => Self::NONE,
+            (0b11, 0) => Self::RX,
+            (0b11, 1) => Self::READ,
+            _ => panic!("invalid selectop of AP & NX bits: {ap:02b}:{nx}"),
+        }
+    }
+}
+
 impl AsPageAttrs for Protection {
     #[inline]
     fn ap(self) -> u64 {
@@ -474,6 +489,19 @@ impl PageTable {
         unsafe {
             assert!(!PAGE_TABLE.is_null(), "VM is not initialized");
             Uintptr::from(PAGE_TABLE)
+        }
+    }
+
+    #[inline]
+    pub fn lookup(addr: Uintptr) -> PageResult<Protection> {
+        if let Some(tab) = unsafe { PAGE_TABLE.as_mut() } {
+            unsafe {
+                let (l1, l2, l3) = Self::index(addr);
+                let page = tab.0[l1].table_mut_unchecked()[l2].table_mut_unchecked()[l3].page;
+                Ok(Protection::from_ap_nx(page.AP(), page.UXN()))
+            }
+        } else {
+            panic!("Page Table is not initialized")
         }
     }
 

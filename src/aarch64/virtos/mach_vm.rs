@@ -1,3 +1,5 @@
+use std::io::Error as IoError;
+
 use mach2::{
     kern_return::{
         KERN_FAILURE, KERN_INVALID_ADDRESS, KERN_INVALID_ARGUMENT, KERN_MEMORY_ERROR,
@@ -13,7 +15,7 @@ use mach2::{
 use super::{HalProvider, mmio, task::TASK_SELF, tlb::TlbProvider};
 use crate::{
     aarch64::{
-        paging::{PAGE_SIZE, PageFault, PageTable},
+        paging::{PAGE_SIZE, PageTable},
         vm::Vm,
     },
     mem::Protection,
@@ -24,10 +26,10 @@ trait AsKernReturn {
     fn as_kern_return(&self) -> kern_return_t;
 }
 
-impl AsKernReturn for PageFault {
+impl AsKernReturn for IoError {
     #[inline]
     fn as_kern_return(&self) -> kern_return_t {
-        if let Some(errno) = self.error.raw_os_error() {
+        if let Some(errno) = self.raw_os_error() {
             match errno {
                 libc::EACCES => KERN_PROTECTION_FAILURE,
                 libc::ENOMEM => KERN_INVALID_ADDRESS,
@@ -75,7 +77,7 @@ pub fn _kernelrpc_mach_vm_deallocate_trap(
 ) -> kern_return_t {
     if target == *TASK_SELF {
         if let Err(err) = PageTable::unmap(address, size as usize) {
-            return err.as_kern_return();
+            return err.error.as_kern_return();
         }
         let size = align_to_page(size as usize);
         Vm::unmap(address.as_u64(), size);
@@ -90,22 +92,38 @@ pub fn _kernelrpc_mach_vm_protect_trap(
     target: mach_port_name_t,
     address: Uintptr,
     size: mach_vm_size_t,
-    set_maximum: i32,
+    mut set_maximum: i32,
     mut new_protection: vm_prot_t,
 ) -> kern_return_t {
-    if target == *TASK_SELF {
+    let size = align_to_page(size as usize);
+    let task_self = *TASK_SELF;
+
+    /* handle the memory protection for self-targeting maps */
+    if target == task_self {
         let Some(prot) = Protection::from_bits(new_protection as u64) else {
             return KERN_INVALID_ARGUMENT;
         };
-        if let Err(err) = PageTable::protect(address, size as usize, prot, set_maximum != 0) {
+        if let Err(err) = PageTable::protect(address, size, prot, set_maximum != 0) {
+            return err.error.as_kern_return();
+        }
+        if let Err(err) = mmio::protect(address, size, prot) {
             return err.as_kern_return();
         }
-        let size = align_to_page(size as usize);
-        Vm::protect(address, size, prot);
         hal.flush_tlb(address.as_u64(), size / PAGE_SIZE);
         new_protection &= !VM_PROT_EXECUTE;
+        set_maximum = 0;
     }
-    unsafe { mach_vm_protect(target, address.as_u64(), size, set_maximum, new_protection) }
+
+    /* forward the mach trap */
+    unsafe {
+        mach_vm_protect(
+            target,
+            address.as_u64(),
+            size as u64,
+            set_maximum,
+            new_protection,
+        )
+    }
 }
 
 pub fn _kernelrpc_mach_vm_map_trap(

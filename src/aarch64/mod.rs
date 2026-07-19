@@ -7,8 +7,6 @@ pub mod syscall;
 pub mod virtos;
 pub mod vm;
 
-use std::io::Error as IoError;
-
 use cpu::Cpu;
 use paging::PageTable;
 use vm::Vm;
@@ -61,15 +59,14 @@ struct InitStackFrame {
 
 #[inline]
 fn on_load(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
-    if unsafe { libc::mprotect(addr.as_ptr(), size, prot.bits() as i32) } != 0 {
+    virtos::mem::protect(addr, size, prot).unwrap_or_else(|err| {
         panic!(
             "cannot protect memory {addr:p}-{end:p}: {err}",
             end = addr + size,
-            err = IoError::last_os_error()
-        );
-    }
-    Vm::protect(addr, size, prot);
+        )
+    });
     PageTable::insert(addr, size, prot, max_prot);
+    Vm::protect(addr, size, prot);
 }
 
 pub fn vm_exec() -> Unit {
@@ -99,6 +96,7 @@ pub fn vm_exec() -> Unit {
     frame.args.args[4] = Uintptr::NIL;
 
     /* start the vCPU */
+    tracing::debug!("CPU entry point is set to 0x{dyld:x}");
     Cpu::new(dyld, &raw const frame.args as u64).run();
     Ok(())
 }

@@ -616,6 +616,7 @@ dependencies = [
  "object",
  "parking_lot",
  "paste",
+ "smallvec",
  "soft-canonicalize",
  "tracing",
  "tracing-core",

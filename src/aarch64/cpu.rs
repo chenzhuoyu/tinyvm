@@ -113,7 +113,16 @@ impl Cpu {
             }
             Exception::SOFTWARE_STEP => {
                 let pc = Uintptr::from(self.read_reg(Reg::PC));
-                tracing::trace!("SINGLE_STEP: {}", disasm(pc));
+                if pc
+                    .addr()
+                    .wrapping_sub(crate::image::Image::dyld().entry.addr())
+                    .wrapping_add(0x1801189c0)
+                    == 0x180134e80
+                {
+                    tracing::trace!("SINGLE_STEP: {}", disasm(pc));
+                    dbg!(&self);
+                    std::intrinsics::breakpoint();
+                }
                 self.write_reg(Reg::CPSR, self.read_reg(Reg::CPSR) | PSTATE_SS);
             }
             ec => {
@@ -196,7 +205,7 @@ impl Cpu {
                 }
             }
         };
-        let Some(resp) = mmio::dispatch(pc, &mut req) else {
+        let Some(resp) = mmio::handle(pc, &mut req) else {
             panic!(
                 "unhandled MMIO request: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
                 insn = disasm(self.read_reg(Reg::PC))
