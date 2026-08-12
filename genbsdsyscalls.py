@@ -110,7 +110,7 @@ pub struct shared_mapping_np {
 	pub sms_address: Uintptr,
 	pub sms_size: libc::mach_vm_size_t,
 	pub sms_file_offset: libc::mach_vm_offset_t,
-	pub sms_slide_size: Uintptr,
+	pub sms_slide_size: usize,
 	pub sms_slide_start: Uintptr,
 	pub sms_max_prot: libc::vm_prot_t,
 	pub sms_init_prot: libc::vm_prot_t,
@@ -534,10 +534,12 @@ for line in map(str.lstrip, lines):
     if decl.strip() != 'void':
         for arg in decl.split(','):
             arg = arg.strip()
+            is_const = False
             *tys, name = arg.rsplit(None)
 
             if tys[0] == 'const':
                 tys = tys[1:]
+                is_const = True
 
             indir = 0
             ty = ' '.join(tys)
@@ -549,6 +551,10 @@ for line in map(str.lstrip, lines):
             while ty.endswith('*'):
                 ty = ty[:-1].strip()
                 indir += 1
+
+            if is_const and ty == 'char' and indir == 1:
+                args.append(Arg(name, 'Sz', 0))
+                continue
 
             ty = TYPE_MAP[ty] or 'libc::c_void'
             args.append(Arg(name, ty, indir))

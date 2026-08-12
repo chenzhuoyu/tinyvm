@@ -1,16 +1,22 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     fs::File,
     io::{Error as IoError, Result as IoResult},
     num::NonZeroU64,
     os::fd::{FromRawFd, OwnedFd},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use parking_lot::{Mutex, RwLock};
+use smallvec::SmallVec;
 
 use super::{
-    HalProvider, faults,
+    HalProvider, faults, mem,
     mmio::{self, MmioHandler, MmioRequest, MmioResponse},
+    pac::SigningKey,
     tlb::TlbProvider,
 };
 use crate::{
@@ -20,29 +26,200 @@ use crate::{
         syscall::bsd::{shared_file_np, shared_mapping_np},
         vm::Vm,
     },
+    macros::define_bit_field,
     mem::{Addressable, Memory, Protection},
     utils::{
+        io::MemoryIo,
+        path::is_real_file,
         ptr::Uintptr,
         size::{align_to_page, is_page_aligned},
     },
 };
 
+const VM_PROT_ZF: i32 = 0x10;
+const VM_PROT_SLIDE: i32 = 0x20;
+
+define_bit_field! {
+    struct Rebase : u64 {
+        runtime_offset : 34,
+        high8          :  8,
+        unused         : 10,
+        next           : 11,    // 8-byte stride
+        auth           :  1,    // == 0
+    }
+
+    struct EncodedPtr : u64 {
+        runtime_offset : 34,
+        high8          :  8,
+        div_high8      :  8,
+        addr_div       :  1,
+        key_is_data    :  1,    // implicitly always the 'A' key. 0: IA, 1: DA
+        next           : 11,    // 8-byte stride
+        auth           :  1,    // == 1
+    }
+}
+
+impl EncodedPtr {
+    #[inline]
+    const fn diversity(self) -> u64 {
+        (self.div_high8() << 8) | self.high8()
+    }
+}
+
+#[derive(Debug)]
+struct SliderPage {
+    addr: Uintptr,
+    lock: Mutex<()>,
+    flag: AtomicBool,
+}
+
+impl SliderPage {
+    fn new(addr: Uintptr) -> Arc<Self> {
+        Arc::new(Self {
+            addr,
+            lock: Mutex::new(()),
+            flag: AtomicBool::new(false),
+        })
+    }
+}
+
+impl SliderPage {
+    fn do_load(&self, pc: Uintptr) {
+        if !self.flag.load(Ordering::Acquire) {
+            let resp = mmio::handle(pc, &mut MmioRequest::read_unsized(self.addr));
+            assert_eq!(resp, Some(MmioResponse::Retry));
+            self.flag.store(true, Ordering::Release);
+        }
+    }
+
+    fn load(&self, pc: Uintptr) {
+        if !self.flag.load(Ordering::Acquire) {
+            let _m = self.lock.lock();
+            self.do_load(pc);
+        }
+    }
+}
+
+#[derive(Debug)]
+struct CacheSlider {
+    size: usize,
+    offs: usize,
+    data: Uintptr,
+    page: SmallVec<[Arc<SliderPage>; 1]>,
+    flag: AtomicBool,
+}
+
+impl CacheSlider {
+    #[inline(always)]
+    const fn page(addr: Uintptr) -> Uintptr {
+        Uintptr::new(addr.addr() & !(PAGE_SIZE - 1))
+    }
+}
+
+impl CacheSlider {
+    #[inline]
+    fn new(data: Uintptr, size: usize, slide: usize, page: SmallVec<[Arc<SliderPage>; 1]>) -> Self {
+        Self {
+            size,
+            data,
+            page,
+            offs: slide,
+            flag: AtomicBool::new(false),
+        }
+    }
+}
+
+impl CacheSlider {
+    fn slide_v5(&self, page: Uintptr, base: Uintptr) {
+        #[repr(C)]
+        #[derive(Debug, Clone, Copy)]
+        struct Header {
+            version: u32,
+            page_size: u32,
+            page_start_count: u32,
+            value_add: u64,
+        }
+
+        /* read the header */
+        let mut mio = MemoryIo::new(self.data, self.size);
+        let hdr = mio.read::<Header>().expect("cannot read slide header");
+        let pos = (page - base) / PAGE_SIZE;
+
+        /* check header version & page size */
+        assert_eq!(hdr.version, 5);
+        assert_eq!(hdr.page_size as usize, PAGE_SIZE);
+
+        /* skip to the starting position */
+        let offs = mio
+            .read_at::<u16>(pos * std::mem::size_of::<u16>())
+            .expect("slide info indexing out of bounds");
+
+        /* no sliding needed in this page */
+        if offs == u16::MAX {
+            return;
+        }
+
+        /* calculate the sliding start and end */
+        let end = page + PAGE_SIZE;
+        let mut slot = page + (offs as usize);
+
+        /* slide each pointers */
+        while slot < end {
+            let item = slot.read::<EncodedPtr>();
+            let addr = item.runtime_offset() + hdr.value_add + (self.offs as u64);
+            let next = item.next() * 8;
+
+            /* sign the pointer if needed */
+            if item.auth() != 0 {
+                slot.write(SigningKey::from(item.key_is_data() << 1).sign(
+                    Uintptr::from(addr),
+                    slot,
+                    item.addr_div() != 0,
+                    item.diversity() as u16,
+                ));
+            } else {
+                let high8 = item.high8() << 56;
+                slot.write::<u64>(high8 | addr);
+            }
+
+            /* move to the next slot */
+            if next != 0 {
+                slot += next;
+            } else {
+                return;
+            }
+        }
+
+        /* should not occure */
+        panic!(
+            "sliding pointers at {slot:p} beyound the page boundary {page:p}-{end:p} with sliding \
+             info at {si:p}-{se:p}",
+            si = self.data,
+            se = self.data + self.size,
+        );
+    }
+
+    fn slide(&self, pc: Uintptr, page: Uintptr, base: Uintptr) {
+        if !self.flag.load(Ordering::Acquire) {
+            self.page.iter().for_each(|p| p.load(pc));
+            self.flag.store(true, Ordering::Release);
+        }
+        match self.data.read::<u32>() {
+            1 => unimplemented!("slide info v1"),
+            2 => unimplemented!("slide info v2"),
+            3 => unimplemented!("slide info v3"),
+            4 => unimplemented!("slide info v4"),
+            5 => self.slide_v5(page, base),
+            v => panic!("unknown slide info version {v}"),
+        };
+    }
+}
+
 #[derive(Debug)]
 struct Mappings {
     file: usize,
-    size: usize,
-    offs: usize,
-}
-
-impl Mappings {
-    #[inline]
-    fn new(id: usize, entry: shared_mapping_np) -> Self {
-        Self {
-            file: id,
-            size: entry.sms_size as usize,
-            offs: entry.sms_file_offset as usize,
-        }
-    }
+    entry: shared_mapping_np,
+    slider: Option<CacheSlider>,
 }
 
 #[derive(Debug)]
@@ -79,6 +256,20 @@ static SHARED_REGION: RwLock<SharedRegionData> = {
     })
 };
 
+impl SharedRegion {
+    fn protect(&self, addr: Uintptr) {
+        let page = CacheSlider::page(addr);
+        let prot = PageTable::lookup(addr);
+
+        /* set the protection bits in host & guest */
+        if let Err(err) = mem::protect(page, PAGE_SIZE, prot) {
+            panic!("cannot set memory protections on shared region: {err}");
+        } else {
+            Vm::protect(page, PAGE_SIZE, prot);
+        }
+    }
+}
+
 impl MmioHandler for SharedRegion {
     fn handle(&self, pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
         let (&base, map) = self
@@ -87,29 +278,36 @@ impl MmioHandler for SharedRegion {
             .next_back()
             .unwrap_or_else(|| panic!("unmapped region at {p:p}: PC={pc:p}", p = req.addr));
         assert!(
-            req.addr < base + map.size,
+            req.addr < base + map.entry.sms_size,
             "MMIO address {addr:p} landed in gaps between regions \
              {base:p}-{next:p}\nInstruction:\n  {insn}",
             addr = req.addr,
-            next = base + map.size,
+            next = base + map.entry.sms_size,
             insn = disasm(pc),
         );
-        let prot = PageTable::lookup(req.addr).unwrap_or_else(|e| {
-            panic!(
-                "cannot lookup protection bits at {p:p}: [PC={pc:?}]: {e}",
-                p = req.addr
-            )
-        });
-        match faults::fetch_page(
+        if map.entry.sms_max_prot & VM_PROT_ZF != 0 {
+            unimplemented!("VM_PROT_ZF for shared cache mappings");
+        }
+        let prot = {
+            if map.slider.is_none() {
+                Some(PageTable::lookup(req.addr))
+            } else {
+                None
+            }
+        };
+        faults::fetch_page(
+            pc,
             req.addr,
             base,
             &mut *self.files[map.file].lock(),
             prot,
-            map.offs,
-        ) {
-            Err(e) => panic!("cannot fetch page at {p:p}: [PC={pc:?}]: {e}", p = req.addr),
-            Ok(()) => MmioResponse::Retry,
+            map.entry.sms_file_offset as usize,
+        );
+        if let Some(slider) = map.slider.as_ref() {
+            slider.slide(pc, CacheSlider::page(req.addr), base);
+            self.protect(req.addr);
         }
+        MmioResponse::Retry
     }
 }
 
@@ -153,6 +351,13 @@ pub fn shared_region_map_and_slide_2_np(
     let mappings = mkslice(mappings_u, mappings_count);
     let mut shared_data = SHARED_REGION.write();
 
+    /* verify file descriptors */
+    for fp in files {
+        if fp.sf_fd != -1 && !is_real_file(fp.sf_fd) {
+            return Err(IoError::from_raw_os_error(libc::EINVAL));
+        }
+    }
+
     /* create a new shared region */
     let mut region = SharedRegion {
         start: Uintptr::NIL,
@@ -160,8 +365,17 @@ pub fn shared_region_map_and_slide_2_np(
         mappings: BTreeMap::new(),
     };
 
-    /* calculate virtual address range */
+    /* calculate virtual address range, while validating the input */
     for map in mappings {
+        if map.sms_slide_size > PAGE_SIZE {
+            unimplemented!(
+                "shared cache mappings slide info does not fit into one page: {size}",
+                size = map.sms_slide_size,
+            );
+        }
+        if map.sms_slide_start.is_nil() != (map.sms_max_prot & VM_PROT_SLIDE == 0) {
+            return Err(IoError::from_raw_os_error(libc::EINVAL));
+        }
         min_virt = min_virt.min(map.sms_address.addr());
         max_virt = max_virt.max(map.sms_address.addr() + (map.sms_size as usize));
     }
@@ -176,7 +390,11 @@ pub fn shared_region_map_and_slide_2_np(
      * mechanism */
     let size = align_to_page(max_virt - min_virt);
     let block = Memory::alloc(size).map(Protection::NONE);
-    let mut map_iter = mappings.iter().copied();
+
+    /* calculate the ASLR slide */
+    let slide = block.addr().addr().wrapping_sub(min_virt);
+    let mut pages = HashMap::new();
+    let mut miter = mappings.iter().copied();
 
     /* process each file */
     for (i, file) in files.iter().enumerate() {
@@ -201,39 +419,71 @@ pub fn shared_region_map_and_slide_2_np(
 
         /* process each mappings */
         for _ in 0..num_mappings {
-            if let Some(map) = map_iter.next() {
-                let size = map.sms_size as usize;
-                let addr = block.addr() + (map.sms_address.addr() - min_virt);
-                let prot = Protection::from_bits_truncate(map.sms_init_prot as u64);
-                eprintln!("mappings(): {addr:p}-{next:p} fd={fd}", next = addr + size);
+            let item = miter.next().expect("no more mappings");
+            let prot = Protection::from_bits_truncate(item.sms_init_prot as u64);
+            let addr = item.sms_address + slide;
+            let size = item.sms_size as usize;
 
-                /* add to guest page table */
-                PageTable::insert(
-                    addr,
-                    size,
-                    prot,
-                    Protection::from_bits_truncate(map.sms_max_prot as u64),
-                );
+            /* add to guest page table */
+            PageTable::insert(
+                addr,
+                size,
+                prot,
+                Protection::from_bits_truncate(item.sms_max_prot as u64),
+            );
 
-                /* we need to load the page immediately if map from self */
-                if fd == -1 {
-                    if is_page_aligned(size) && addr.is_aligned_to(PAGE_SIZE) {
-                        unsafe {
-                            let src = map.sms_file_offset as *const u8;
-                            std::ptr::copy_nonoverlapping(src, addr.as_ptr(), size);
-                            Vm::protect(addr, size, prot);
-                        }
-                    } else {
-                        return Err(IoError::from_raw_os_error(libc::EINVAL));
+            /* we need to load the page immediately if map from self */
+            if fd == -1 {
+                if is_page_aligned(size) && addr.is_aligned_to(PAGE_SIZE) {
+                    unsafe {
+                        let src = item.sms_file_offset as *const u8;
+                        std::ptr::copy_nonoverlapping(src, addr.as_ptr(), size);
+                        Vm::protect(addr, size, prot);
+                        continue;
                     }
                 } else {
-                    region
-                        .mappings
-                        .insert(addr, Mappings::new(region.files.len(), map));
+                    return Err(IoError::from_raw_os_error(libc::EINVAL));
                 }
-            } else {
-                panic!("no more mappings");
             }
+
+            /* create the cache slider, if needed */
+            let slider = {
+                if item.sms_max_prot & VM_PROT_SLIDE != 0 {
+                    let ptr = item.sms_slide_start + slide;
+                    let end = CacheSlider::page(ptr + item.sms_slide_size - 1);
+                    let mut pos = CacheSlider::page(ptr);
+                    let mut page = SmallVec::new();
+
+                    /* collect all slider info pages */
+                    while pos <= end {
+                        let item = pages
+                            .entry(pos)
+                            .or_insert_with_key(|&addr| SliderPage::new(addr))
+                            .clone();
+                        page.push(item);
+                        pos += PAGE_SIZE;
+                    }
+
+                    /* create the slider */
+                    Some(CacheSlider::new(
+                        item.sms_slide_start + slide,
+                        item.sms_slide_size,
+                        slide,
+                        page,
+                    ))
+                } else {
+                    None
+                }
+            };
+
+            /* register the mapping into shared region */
+            region.mappings.insert(addr, {
+                Mappings {
+                    file: region.files.len(),
+                    entry: item,
+                    slider,
+                }
+            });
         }
 
         /* add the file if needed */
@@ -245,13 +495,19 @@ pub fn shared_region_map_and_slide_2_np(
 
     /* check the mappings count */
     assert!(
-        map_iter.next().is_none(),
-        "there are more mappings to map than required by files"
+        miter.next().is_none(),
+        "there are more mappings to process than those required by files"
     );
 
     /* register the shared region */
     region.start = block.into_parts().0;
     shared_data.replace(region.start, size);
+
+    // TODO: remove this
+    for (&base, entry) in region.mappings.iter() {
+        let file = region.files[entry.file].get_mut();
+        eprintln!("{base:p}-{:p} {:?}", base + entry.entry.sms_size, file);
+    }
 
     /* flusth TLB and add the shared region to MMIO */
     hal.flush_tlb(region.start.as_u64(), size / PAGE_SIZE);
@@ -259,54 +515,12 @@ pub fn shared_region_map_and_slide_2_np(
     Ok(())
 }
 
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-
-struct MwlRegion {
-    mwlr_fd: i32,
-    mwlr_protections: libc::vm_prot_t,
-    mwlr_file_offset: u64,
-    mwlr_address: Uintptr,
-    mwlr_size: usize,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-struct MwlInfoHeader {
-    mwli_version: u32,
-    mwli_page_size: u16,
-    mwli_pointer_format: u16,
-    mwli_binds_offset: u32,
-    mwli_binds_count: u32,
-    mwli_chains_offset: u32,
-    mwli_chains_size: u32,
-    mwli_slide: u64,
-    mwli_image_address: Uintptr,
-}
-
-impl MwlInfoHeader {
-    const VERSION: u32 = 7;
-}
-
 pub fn map_with_linking_np(
     _hal: &impl HalProvider,
-    regions: *mut libc::c_void,
-    region_count: u32,
-    link_info: *mut libc::c_void,
-    link_info_size: u32,
+    _regions: *mut libc::c_void,
+    _region_count: u32,
+    _link_info: *mut libc::c_void,
+    _link_info_size: u32,
 ) -> IoResult<()> {
-    let regions = mkslice(regions as *const MwlRegion, region_count);
-    let mwli_hdr = unsafe { &*(link_info as *const MwlInfoHeader) };
-
-    /* version check */
-    if mwli_hdr.mwli_version != MwlInfoHeader::VERSION {
-        return Err(IoError::from_raw_os_error(libc::EINVAL));
-    }
-
-    dbg!(regions);
-    dbg!(mwli_hdr);
-    dbg!(link_info_size);
-
-    // TODO: it seems that this is really needed, the userspace implementation in dyld seems broken.
     Err(IoError::from_raw_os_error(libc::ENOSYS))
 }

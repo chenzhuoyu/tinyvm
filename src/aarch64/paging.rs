@@ -493,12 +493,12 @@ impl PageTable {
     }
 
     #[inline]
-    pub fn lookup(addr: Uintptr) -> PageResult<Protection> {
+    pub fn lookup(addr: Uintptr) -> Protection {
         if let Some(tab) = unsafe { PAGE_TABLE.as_mut() } {
             unsafe {
                 let (l1, l2, l3) = Self::index(addr);
                 let page = tab.0[l1].table_mut_unchecked()[l2].table_mut_unchecked()[l3].page;
-                Ok(Protection::from_ap_nx(page.AP(), page.UXN()))
+                Protection::from_ap_nx(page.AP(), page.UXN())
             }
         } else {
             panic!("Page Table is not initialized")

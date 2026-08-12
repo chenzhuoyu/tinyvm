@@ -106,6 +106,10 @@ impl Cpu {
                 let elr = self.read_sys_reg(SysReg::ELR_EL1);
                 self.handle_user_exc(Syndrome(esr), elr.into());
             }
+            Exception::INST_ABORT => {
+                let pc = self.read_reg(Reg::PC);
+                self.handle_inst_abort(pc.into(), exc.phys_addr);
+            }
             Exception::DATA_ABORT => {
                 let pc = self.read_reg(Reg::PC);
                 let iss = DataAbortISS(exc.syndrome.ISS() as u32);
@@ -113,23 +117,14 @@ impl Cpu {
             }
             Exception::SOFTWARE_STEP => {
                 let pc = Uintptr::from(self.read_reg(Reg::PC));
-                if pc
-                    .addr()
-                    .wrapping_sub(crate::image::Image::dyld().entry.addr())
-                    .wrapping_add(0x1801189c0)
-                    == 0x180134e80
-                {
-                    tracing::trace!("SINGLE_STEP: {}", disasm(pc));
-                    dbg!(&self);
-                    std::intrinsics::breakpoint();
-                }
+                tracing::trace!("SINGLE_STEP: {}", disasm(pc));
                 self.write_reg(Reg::CPSR, self.read_reg(Reg::CPSR) | PSTATE_SS);
             }
             ec => {
                 panic!(
-                    "unhandled exception {ec:?}:\nInstruction:\n  {insn:p}\nException: \
+                    "unhandled exception {ec:?}:\nInstruction:\n  {insn}\nException: \
                      {exc:#?}\n{self:#?}",
-                    insn = Uintptr::from(self.read_reg(Reg::PC))
+                    insn = disasm(self.read_reg(Reg::PC))
                 );
             }
         }
@@ -154,6 +149,27 @@ impl Cpu {
                 );
             }
         }
+    }
+
+    fn handle_inst_abort(&mut self, pc: Uintptr, addr: Uintptr) {
+        let mut req = MmioRequest {
+            addr,
+            data: 0,
+            size: MmioSize::Mem32,
+            kind: MmioKind::Execution,
+        };
+        let Some(resp) = mmio::handle(pc, &mut req) else {
+            panic!(
+                "unhandled page fault from instruction fetching: {self:#?}\nAddress:\n  \
+                 {addr:p}\nInstruction:\n  {insn}",
+                insn = disasm(self.read_reg(Reg::PC))
+            );
+        };
+        assert_eq!(
+            resp,
+            MmioResponse::Retry,
+            "invalid handling of page fault from instruction fetching"
+        );
     }
 
     fn handle_data_abort(&mut self, pc: Uintptr, iss: DataAbortISS, addr: Uintptr) {
@@ -207,7 +223,7 @@ impl Cpu {
         };
         let Some(resp) = mmio::handle(pc, &mut req) else {
             panic!(
-                "unhandled MMIO request: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
+                "unhandled page fault: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
                 insn = disasm(self.read_reg(Reg::PC))
             );
         };

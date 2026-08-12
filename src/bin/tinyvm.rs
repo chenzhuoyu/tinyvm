@@ -15,6 +15,7 @@ fn init_logs() {
         .with(
             tracing_subscriber::fmt::layer()
                 .compact()
+                // TODO: enable this
                 // .with_writer(std::io::stderr)
                 .with_span_events(FmtSpan::FULL),
         )

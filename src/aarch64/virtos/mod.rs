@@ -6,6 +6,7 @@ pub mod faults;
 pub mod mach_vm;
 pub mod mem;
 pub mod mmio;
+pub mod pac;
 pub mod shared_cache;
 pub mod task;
 pub mod tlb;

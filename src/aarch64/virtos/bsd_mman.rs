@@ -17,7 +17,7 @@ use crate::{
         vm::Vm,
     },
     mem::Protection,
-    utils::{ptr::Uintptr, size::align_to_page},
+    utils::{path::is_real_file, ptr::Uintptr, size::align_to_page},
 };
 
 struct FileMap {
@@ -28,11 +28,11 @@ struct FileMap {
 }
 
 impl FileMap {
-    fn new(addr: Uintptr, fd: i32, pos: libc::off_t, flags: i32) -> Self {
+    fn new(addr: Uintptr, fd: i32, flags: i32, offset: libc::off_t) -> Self {
         Self {
             base: addr,
             file: unsafe { Mutex::new(File::from(OwnedFd::from_raw_fd(libc::dup(fd)))) },
-            offset: pos as usize,
+            offset: offset as usize,
             write_back: flags & libc::MAP_SHARED != 0,
         }
     }
@@ -48,22 +48,10 @@ impl Drop for FileMap {
 
 impl MmioHandler for FileMap {
     fn handle(&self, pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
-        let prot = PageTable::lookup(req.addr).unwrap_or_else(|e| {
-            panic!(
-                "cannot lookup protection bits at {p:p}: [PC={pc:?}]: {e}",
-                p = req.addr
-            )
-        });
-        match faults::fetch_page(
-            req.addr,
-            self.base,
-            &mut *self.file.lock(),
-            prot,
-            self.offset,
-        ) {
-            Err(e) => panic!("cannot fetch page at {p:p}: [PC={pc:?}]: {e}", p = req.addr),
-            Ok(()) => MmioResponse::Retry,
-        }
+        let prot = PageTable::lookup(req.addr);
+        let mut file = self.file.lock();
+        faults::fetch_page(pc, req.addr, self.base, &mut *file, Some(prot), self.offset);
+        MmioResponse::Retry
     }
 }
 
@@ -115,7 +103,7 @@ pub fn mmap(
     prot: i32,
     flags: i32,
     mut fd: i32,
-    pos: libc::off_t,
+    offset: libc::off_t,
 ) -> IoResult<Uintptr> {
     let map_fd = fd;
     let map_flags = flags | libc::MAP_ANON;
@@ -126,10 +114,28 @@ pub fn mmap(
         return Err(IoError::from_raw_os_error(libc::EINVAL));
     };
 
+    /* only map real files with MMIO */
+    if !is_real_file(fd) {
+        let bits = prot.bits() as i32;
+        let size = align_to_page(len);
+
+        let addr = unsafe {
+            match libc::mmap(addr.as_ptr(), len, bits, flags, fd, offset) {
+                libc::MAP_FAILED => return Err(IoError::last_os_error()),
+                mem => Uintptr::from(mem),
+            }
+        };
+
+        Vm::map(addr, size, prot);
+        PageTable::insert(addr, size, prot, Protection::all());
+        hal.flush_tlb(addr.as_u64(), size / PAGE_SIZE);
+        return Ok(addr);
+    }
+
     /* no file mappings on host side, always map them as regular pages and populate later with
      * MMIO handlers */
     if flags & libc::MAP_ANON == 0 {
-        if pos % (PAGE_SIZE as i64) != 0 {
+        if offset % (PAGE_SIZE as i64) != 0 {
             return Err(IoError::from_raw_os_error(libc::EINVAL));
         }
         map_prot = libc::PROT_NONE;
@@ -139,7 +145,7 @@ pub fn mmap(
     /* always map as anonymous non-executable pages at host side (fd may have extra flags for
      * MAP_ANON, so keep them) */
     let addr = unsafe {
-        match libc::mmap(addr.as_ptr(), len, map_prot, map_flags, fd, 0) {
+        match libc::mmap(addr.as_ptr(), len, map_prot, map_flags, fd, offset) {
             libc::MAP_FAILED => return Err(IoError::last_os_error()),
             mem => Uintptr::from(mem),
         }
@@ -151,7 +157,7 @@ pub fn mmap(
 
     /* register file mappings as MMIO */
     if flags & libc::MAP_ANON == 0 {
-        let handler = FileMap::new(addr, map_fd, pos, flags);
+        let handler = FileMap::new(addr, map_fd, flags, offset);
         mmio::register(addr, size, handler);
         vm_prot = Protection::NONE;
     }

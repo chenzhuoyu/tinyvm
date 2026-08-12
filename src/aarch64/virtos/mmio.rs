@@ -51,6 +51,18 @@ pub struct MmioRequest {
     pub kind: MmioKind,
 }
 
+impl MmioRequest {
+    #[inline(always)]
+    pub const fn read_unsized(addr: Uintptr) -> Self {
+        Self {
+            addr,
+            data: 0,
+            size: MmioSize::Unknown,
+            kind: MmioKind::Read,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MmioResponse {
     Retry,

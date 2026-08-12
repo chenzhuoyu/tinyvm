@@ -9,6 +9,7 @@ use std::{
 
 use anyhow::Context;
 
+use super::ptr::Uintptr;
 use crate::Maybe;
 
 pub trait AsUsize: Copy {
@@ -76,6 +77,13 @@ impl_get_int! {
 
 #[derive(Debug, Clone, Copy)]
 pub struct MemoryIo<'s>(pub &'s [u8]);
+
+impl MemoryIo<'_> {
+    #[inline]
+    pub fn new(data: Uintptr, size: usize) -> Self {
+        unsafe { Self(std::slice::from_raw_parts(data.as_ptr(), size)) }
+    }
+}
 
 impl MemoryIo<'_> {
     #[inline]

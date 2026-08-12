@@ -2,16 +2,16 @@ use std::io::{ErrorKind, Read, Result as IoResult, Seek, SeekFrom};
 
 use super::mem;
 use crate::{
-    aarch64::{paging::PAGE_SIZE, vm::Vm},
+    aarch64::{disasm::disasm, paging::PAGE_SIZE, vm::Vm},
     mem::Protection,
     utils::ptr::Uintptr,
 };
 
-pub fn fetch_page<F: Read + Seek>(
+fn do_fetch_page<F: Read + Seek>(
     addr: Uintptr,
     base: Uintptr,
     file: &mut F,
-    prot: Protection,
+    prot: Option<Protection>,
     offset: usize,
 ) -> IoResult<()> {
     let offs = (addr - base) & !(PAGE_SIZE - 1);
@@ -39,13 +39,30 @@ pub fn fetch_page<F: Read + Seek>(
             Err(e) => return Err(e),
         }
     }
-    eprintln!(
-        "fetch_page(): addr={addr:p} range {base:p}-{next:p}",
-        next = base + PAGE_SIZE,
-    );
+
+    /* get the protection bits */
+    let Some(prot) = prot else {
+        return Ok(());
+    };
 
     /* finalize the protection on this page */
     mem::protect(base, PAGE_SIZE, prot)?;
     Vm::protect(base, PAGE_SIZE, prot);
     Ok(())
+}
+
+pub fn fetch_page<F: Read + Seek>(
+    pc: Uintptr,
+    addr: Uintptr,
+    base: Uintptr,
+    file: &mut F,
+    prot: Option<Protection>,
+    offset: usize,
+) {
+    do_fetch_page(addr, base, file, prot, offset).unwrap_or_else(|err| {
+        panic!(
+            "cannot fetch page at {addr:p}\nInstruction:\n  {insn}\nError:\n  {err}",
+            insn = disasm(pc)
+        )
+    });
 }
