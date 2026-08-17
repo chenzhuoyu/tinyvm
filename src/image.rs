@@ -23,7 +23,7 @@ use parking_lot::Mutex;
 
 use crate::{
     Maybe,
-    mem::{Addressable, Memory, MemoryExt, Protection},
+    mem::{Memory, Protection},
     utils::{
         io::{MappedFile, MemoryIo, ValueExt},
         path::LibPathNormalizeExt,
@@ -205,7 +205,7 @@ impl Image {
         }
 
         /* map the image, and calculate ASLR slide */
-        let image = Memory::alloc((max_addr - min_addr) as usize).map(Protection::RW);
+        let image = Memory::alloc((max_addr - min_addr) as usize, Protection::RW);
         let slide = image.addr().addr() - (min_addr as usize);
 
         /* load the segments */
@@ -243,8 +243,7 @@ impl Image {
             };
             let size = seg.vmsize.usize();
             let addr = seg.vmaddr.usize() + slide;
-            let offs = addr - image.addr().addr();
-            image.view(offs..offs + size).protect(prot);
+            image.protect(addr - image.addr().addr(), size, prot);
             Self::notify_load_handler(addr.into(), size, prot, max_prot);
         }
 

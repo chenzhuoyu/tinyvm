@@ -63,7 +63,7 @@ pub fn _kernelrpc_mach_vm_allocate_trap(
     let addr = unsafe { Uintptr::from(*args.addr) };
 
     /* insert into guest address space and page table */
-    PageTable::map(addr, size, Protection::RW, Protection::all());
+    PageTable::map(addr, addr, size, Protection::RW, Protection::all());
     hal.flush_tlb(addr.as_u64(), size / PAGE_SIZE);
     Vm::map(addr, size, Protection::RW);
     KERN_SUCCESS
@@ -78,9 +78,9 @@ pub fn _kernelrpc_mach_vm_deallocate_trap(
             return err.error.as_kern_return();
         }
         let size = align_to_page(args.size as usize);
-        Vm::unmap(args.address.as_u64(), size);
+        Vm::unmap(args.address, size);
+        mmio::unmap(args.address, size);
         hal.flush_tlb(args.address.as_u64(), size / PAGE_SIZE);
-        mmio::unregister(args.address, size);
     }
     unsafe { mach_vm_deallocate(args.target, args.address.as_u64(), args.size) }
 }
@@ -144,7 +144,7 @@ pub fn _kernelrpc_mach_vm_map_trap(
     /* check for fixed address mappings */
     if args.flags & VM_FLAGS_ANYWHERE == 0 {
         let addr = unsafe { Uintptr::from(*args.address) };
-        Vm::unmap(addr.as_u64(), args.size as usize);
+        Vm::unmap(addr, args.size as usize);
         PageTable::unmap(addr, args.size as usize).expect("cannot unmap fixed range");
     }
 
@@ -180,7 +180,7 @@ pub fn _kernelrpc_mach_vm_map_trap(
     let addr = unsafe { Uintptr::from(*args.address) };
 
     /* insert into page table, map to guest address space, then flush TLB */
-    PageTable::map(addr, size, prot, Protection::all());
+    PageTable::map(addr, addr, size, prot, Protection::all());
     hal.flush_tlb(addr.as_u64(), size / PAGE_SIZE);
     Vm::map(addr, size, prot);
     KERN_SUCCESS

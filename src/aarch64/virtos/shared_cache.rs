@@ -27,8 +27,13 @@ use crate::{
         vm::Vm,
     },
     macros::define_bit_field,
-    mem::{Addressable, Memory, Protection},
-    utils::{io::MemoryIo, path::is_real_file, ptr::Uintptr, size::is_page_aligned},
+    mem::Protection,
+    utils::{
+        io::MemoryIo,
+        path::is_real_file,
+        ptr::Uintptr,
+        size::{align_to_page, is_page_aligned},
+    },
 };
 
 const VM_PROT_ZF: i32 = 0x10;
@@ -82,7 +87,7 @@ impl SliderPage {
     fn do_load(&self, pc: Uintptr) {
         if !self.flag.load(Ordering::Acquire) {
             let mut req = MmioRequest::read_unsized(self.addr);
-            assert_eq!(mmio::handle(pc, &mut req), Some(MmioResponse::Retry));
+            assert_eq!(mmio::dispatch(pc, &mut req), Some(MmioResponse::Retry));
             self.flag.store(true, Ordering::Release);
         }
     }
@@ -233,7 +238,10 @@ struct SharedRegionData {
 
 impl SharedRegionData {
     fn remove(&mut self) {
-        Vm::unmap(self.addr.as_u64(), self.size);
+        if !self.addr.is_nil() {
+            Vm::unmap(self.addr, self.size);
+            Vm::dealloc(self.addr, self.size);
+        }
     }
 
     fn replace(&mut self, addr: Uintptr, size: usize) {
@@ -379,8 +387,8 @@ pub fn shared_region_map_and_slide_2_np(
 
     /* allocate a block of memory without mapping to guest space to use MMIO as an on-demand
      * page-in mechanism, and calculate the ASLR slide */
-    let block = Memory::alloc(max_virt - min_virt);
-    let slide = block.addr().addr().wrapping_sub(min_virt);
+    let block = Vm::alloc(align_to_page(max_virt - min_virt));
+    let slide = block.addr().wrapping_sub(min_virt);
 
     /* iterate over mappings */
     let mut pages = HashMap::new();
@@ -416,6 +424,7 @@ pub fn shared_region_map_and_slide_2_np(
 
             /* add to guest page table */
             PageTable::map(
+                addr,
                 addr,
                 size,
                 prot,
@@ -490,16 +499,16 @@ pub fn shared_region_map_and_slide_2_np(
     );
 
     /* get the address and size of the memory block */
-    let (addr, size) = block.into_parts();
+    let size = align_to_page(max_virt - min_virt);
     let num_pages = size / PAGE_SIZE;
 
     /* register the shared region */
-    region.start = addr;
-    shared_data.replace(addr, size);
+    region.start = block;
+    shared_data.replace(block, size);
 
     /* flusth TLB and add the shared region to MMIO */
     hal.flush_tlb(region.start.as_u64(), num_pages);
-    mmio::register(region.start, size, region);
+    mmio::map(region.start, size, region);
     Ok(())
 }
 

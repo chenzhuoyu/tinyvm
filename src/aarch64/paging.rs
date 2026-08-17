@@ -14,6 +14,14 @@ use crate::{
 };
 
 define_bit_field! {
+    struct L3Ptr : usize {
+        offs: 14,
+        idx3: 11,
+        idx2: 11,
+        idx1: 11,
+        sign: 17,
+    }
+
     /// Page or Block descriptor for 16 KiB page.
     ///
     /// Block entries are valid at levels 0 through 2, only page entries are
@@ -201,15 +209,7 @@ union Entry {
 
 impl Entry {
     #[inline]
-    fn set_page(&mut self, addr: Uintptr, prot: Protection, max_prot: Protection) {
-        unsafe {
-            assert!(
-                self.page.valid() == 0,
-                "overlapping page entry at {:p}: {:#?}",
-                addr,
-                self.page,
-            );
-        }
+    fn set_page(&mut self, phys: Uintptr, prot: Protection, max_prot: Protection) {
         self.page = PageDescriptor::builder()
             .valid(1)
             .ty(1)
@@ -219,7 +219,7 @@ impl Entry {
             .SH(0b11)
             .AF(1)
             .nG(0)
-            .phys_addr(addr.as_u64() / (PAGE_SIZE as u64))
+            .phys_addr(phys.as_u64() / (PAGE_SIZE as u64))
             .DBM(0)
             .Contig(0)
             .PXN(prot.nx())
@@ -231,7 +231,7 @@ impl Entry {
     #[inline]
     fn set_table(&mut self, level: FaultLevel) -> &mut [Self; ENTRY_COUNT] {
         if self.try_as_table_mut(level).is_err() {
-            let next = Memory::alloc(PAGE_SIZE).map(Protection::RW).into_parts().0;
+            let next = Memory::map(PAGE_SIZE, Protection::RW);
             self.table = TableDescriptor::new(next.as_u64() / (PAGE_SIZE as u64));
             next.as_mut()
         } else {
@@ -372,32 +372,18 @@ impl PageTable {
         unsafe {
             assert!(
                 libc::vm_page_size == PAGE_SIZE,
-                "page size went bananas: {} != {}",
-                libc::vm_page_size,
-                PAGE_SIZE,
+                "page size went bananas: {size} != {PAGE_SIZE}",
+                size = libc::vm_page_size,
             );
-            PAGE_TABLE = Memory::alloc(PAGE_SIZE)
-                .map(Protection::RW)
-                .into_parts()
-                .0
-                .as_ptr();
+            PAGE_TABLE = Memory::map(PAGE_SIZE, Protection::RW).as_ptr();
         }
     }
 }
 
 impl PageTable {
     #[inline(always)]
-    const fn index(addr: Uintptr) -> (usize, usize, usize) {
-        define_bit_field! {
-            struct L3Ptr : usize {
-                offs: 14,
-                idx3: 11,
-                idx2: 11,
-                idx1: 11,
-                sign: 17,
-            }
-        }
-        let ptr = L3Ptr(addr.addr());
+    const fn index(virt: Uintptr) -> (usize, usize, usize) {
+        let ptr = L3Ptr(virt.addr());
         assert!(ptr.sign() == 0);
         (ptr.idx1(), ptr.idx2(), ptr.idx3())
     }
@@ -405,8 +391,8 @@ impl PageTable {
 
 impl PageTable {
     #[inline]
-    fn page_of(&self, addr: Uintptr) -> Result<PageDescriptor, PageFault> {
-        let (l1, l2, l3) = Self::index(addr);
+    fn page_of(&self, virt: Uintptr) -> Result<PageDescriptor, PageFault> {
+        let (l1, l2, l3) = Self::index(virt);
         let next = self.0[l1].try_as_table(FaultLevel::L1)?;
         let next = next[l2].try_as_table(FaultLevel::L2)?;
         next[l3].try_as_page()
@@ -416,50 +402,52 @@ impl PageTable {
 impl PageTable {
     fn do_map(
         &mut self,
-        mut addr: Uintptr,
+        mut phys: Uintptr,
+        mut virt: Uintptr,
         num_pages: usize,
         prot: Protection,
         max_prot: Protection,
     ) {
         for i in 0..num_pages {
-            if self.page_of(addr + i * PAGE_SIZE).is_ok() {
-                panic!("page entry for {addr:p} already exists");
+            if self.page_of(virt + i * PAGE_SIZE).is_ok() {
+                panic!("page entry at virtual address {virt:p} already exists");
             }
         }
         for _ in 0..num_pages {
-            let (l1, l2, l3) = Self::index(addr);
+            let (l1, l2, l3) = Self::index(virt);
             let next = self.0[l1].set_table(FaultLevel::L1);
             let next = next[l2].set_table(FaultLevel::L2);
-            next[l3].set_page(addr, prot, max_prot);
-            addr += PAGE_SIZE;
+            next[l3].set_page(phys, prot, max_prot);
+            phys += PAGE_SIZE;
+            virt += PAGE_SIZE;
         }
     }
 
-    fn do_unmap(&mut self, mut addr: Uintptr, num_pages: usize) -> PageUnit {
+    fn do_unmap(&mut self, mut virt: Uintptr, num_pages: usize) -> PageUnit {
         for i in 0..num_pages {
-            self.page_of(addr + i * PAGE_SIZE)?;
+            self.page_of(virt + i * PAGE_SIZE)?;
         }
         for _ in 0..num_pages {
-            let (l1, l2, l3) = Self::index(addr);
+            let (l1, l2, l3) = Self::index(virt);
             unsafe { self.0[l1].table_mut_unchecked()[l2].table_mut_unchecked()[l3].bits = 0 }
-            addr += PAGE_SIZE as u64;
+            virt += PAGE_SIZE as u64;
         }
         Ok(())
     }
 
     fn do_protect(
         &mut self,
-        mut addr: Uintptr,
+        mut virt: Uintptr,
         num_pages: usize,
         set_max: bool,
         prot: Protection,
     ) -> PageUnit {
         for i in 0..num_pages {
-            self.page_of(addr + i * PAGE_SIZE)?;
+            self.page_of(virt + i * PAGE_SIZE)?;
         }
         for _ in 0..num_pages {
             let page = unsafe {
-                let (l1, l2, l3) = Self::index(addr);
+                let (l1, l2, l3) = Self::index(virt);
                 &mut self.0[l1].table_mut_unchecked()[l2].table_mut_unchecked()[l3].page
             };
             if prot.bits() & !page.user_data() != 0 {
@@ -471,7 +459,7 @@ impl PageTable {
             page.set_AP(prot.ap());
             page.set_PXN(prot.nx());
             page.set_UXN(prot.nx());
-            addr += PAGE_SIZE as u64;
+            virt += PAGE_SIZE as u64;
         }
         Ok(())
     }
@@ -487,58 +475,77 @@ impl PageTable {
     }
 
     #[inline]
-    pub fn lookup(addr: Uintptr) -> Protection {
-        if let Some(tab) = unsafe { PAGE_TABLE.as_mut() } {
-            unsafe {
-                let (l1, l2, l3) = Self::index(addr);
-                let page = tab.0[l1].table_mut_unchecked()[l2].table_mut_unchecked()[l3].page;
-                Protection::from_ap_nx(page.AP(), page.UXN())
-            }
-        } else {
-            panic!("Page Table is not initialized")
+    pub fn lookup(virt: Uintptr) -> Protection {
+        let tab = unsafe {
+            PAGE_TABLE
+                .as_ref()
+                .unwrap_or_else(|| panic!("Page Table is not initialized"))
+        };
+        unsafe {
+            let (l1, l2, l3) = Self::index(virt);
+            let page = tab.0[l1].table_unchecked()[l2].table_unchecked()[l3].page;
+            Protection::from_ap_nx(page.AP(), page.UXN())
         }
+    }
+
+    #[inline]
+    pub fn translate(virt: Uintptr) -> Result<Uintptr, PageFault> {
+        let tab = unsafe {
+            PAGE_TABLE
+                .as_ref()
+                .unwrap_or_else(|| panic!("Page Table is not initialized"))
+        };
+        let page = tab.page_of(virt)?;
+        let phys = Uintptr::from(page.phys_addr() * (PAGE_SIZE as u64));
+        Ok(phys + L3Ptr(virt.addr()).offs())
     }
 }
 
 impl PageTable {
-    pub fn map(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
-        assert!(
-            addr.addr().is_multiple_of(PAGE_SIZE),
-            "page size is not a multiple of {PAGE_SIZE}"
-        );
+    pub fn map(phys: Uintptr, virt: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
         let tab = unsafe {
             PAGE_TABLE
                 .as_mut()
                 .unwrap_or_else(|| panic!("Page Table is not initialized"))
         };
+        assert!(
+            virt.addr().is_multiple_of(PAGE_SIZE),
+            "virtual address is not a multiple of {PAGE_SIZE}"
+        );
+        assert!(
+            phys.addr().is_multiple_of(PAGE_SIZE),
+            "physical address is not a multiple of {PAGE_SIZE}"
+        );
         let count = size.div_ceil(PAGE_SIZE);
         let _lock = PAGE_LOCK.lock();
-        tab.do_map(addr, count, prot, max_prot);
+        tab.do_map(phys, virt, count, prot, max_prot);
     }
 
-    pub fn unmap(addr: Uintptr, size: usize) -> PageUnit {
-        if let Some(tab) = unsafe { PAGE_TABLE.as_mut() } {
-            if addr.addr().is_multiple_of(PAGE_SIZE) {
-                let _lock = PAGE_LOCK.lock();
-                tab.do_unmap(addr, size.div_ceil(PAGE_SIZE))
-            } else {
-                Err(PageFault::einval(FaultLevel::L1))
-            }
-        } else {
-            panic!("Page Table is not initialized")
+    pub fn unmap(virt: Uintptr, size: usize) -> PageUnit {
+        let tab = unsafe {
+            PAGE_TABLE
+                .as_mut()
+                .unwrap_or_else(|| panic!("Page Table is not initialized"))
+        };
+        if !virt.addr().is_multiple_of(PAGE_SIZE) {
+            return Err(PageFault::einval(FaultLevel::L1));
         }
+        let count = size.div_ceil(PAGE_SIZE);
+        let _lock = PAGE_LOCK.lock();
+        tab.do_unmap(virt, count)
     }
 
-    pub fn protect(addr: Uintptr, size: usize, prot: Protection, set_max: bool) -> PageUnit {
-        if let Some(tab) = unsafe { PAGE_TABLE.as_mut() } {
-            if addr.addr().is_multiple_of(PAGE_SIZE) {
-                let _lock = PAGE_LOCK.lock();
-                tab.do_protect(addr, size.div_ceil(PAGE_SIZE), set_max, prot)
-            } else {
-                Err(PageFault::einval(FaultLevel::L1))
-            }
-        } else {
-            panic!("Page Table is not initialized")
+    pub fn protect(virt: Uintptr, size: usize, prot: Protection, set_max: bool) -> PageUnit {
+        let tab = unsafe {
+            PAGE_TABLE
+                .as_mut()
+                .unwrap_or_else(|| panic!("Page Table is not initialized"))
+        };
+        if !virt.addr().is_multiple_of(PAGE_SIZE) {
+            return Err(PageFault::einval(FaultLevel::L1));
         }
+        let count = size.div_ceil(PAGE_SIZE);
+        let _lock = PAGE_LOCK.lock();
+        tab.do_protect(virt, count, set_max, prot)
     }
 }

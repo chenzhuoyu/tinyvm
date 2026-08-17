@@ -228,8 +228,8 @@ fn handle_mach_vm_map(
 
     /* check for fixed address mappings */
     if req.flags & VM_FLAGS_ANYWHERE == 0 {
-        Vm::unmap(addr, req.size as usize);
-        PageTable::unmap(addr.into(), req.size as usize).expect("cannot unmap fixed range");
+        Vm::unmap(req.address, req.size as usize);
+        PageTable::unmap(req.address, req.size as usize).expect("cannot unmap fixed range");
     }
 
     /* convert current protection flags */
@@ -277,7 +277,7 @@ fn handle_mach_vm_map(
     ));
 
     /* insert into page table, map to guest address space, then flush TLB */
-    PageTable::map(addr, size, cur_prot, max_prot);
+    PageTable::map(addr, addr, size, cur_prot, max_prot);
     hal.flush_tlb(addr.as_u64(), size / PAGE_SIZE);
     Vm::map(addr, size, cur_prot);
     KERN_SUCCESS

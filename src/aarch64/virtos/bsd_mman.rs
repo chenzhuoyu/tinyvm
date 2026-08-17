@@ -147,7 +147,7 @@ fn map_from_file(
     if addr.as_ptr() == libc::MAP_FAILED {
         return Err(IoError::last_os_error());
     }
-    mmio::register(addr, size, FileMap::new(addr, fd, flags, offset));
+    mmio::map(addr, size, FileMap::new(addr, fd, flags, offset));
     Ok(addr)
 }
 
@@ -172,7 +172,7 @@ fn map_from_object(
     if addr.as_ptr() == libc::MAP_FAILED {
         return Err(IoError::last_os_error());
     }
-    mmio::register(addr, size, ObjectMap::map(addr, size));
+    mmio::map(addr, size, ObjectMap::map(addr, size));
     Ok(addr)
 }
 
@@ -187,9 +187,9 @@ pub fn munmap(hal: &impl HalProvider, addr: Uintptr, len: usize) -> IoResult<()>
 
     /* remove from page table and such */
     PageTable::unmap(addr, len)?;
-    mmio::unregister(addr, size);
     hal.flush_tlb(base, num_pages);
-    Vm::unmap(base, size);
+    mmio::unmap(addr, size);
+    Vm::unmap(addr, size);
 
     /* actually remove from host address space */
     if unsafe { libc::munmap(addr.as_ptr(), len) } != 0 {
@@ -211,9 +211,9 @@ pub fn mprotect(hal: &impl HalProvider, addr: Uintptr, len: usize, raw_prot: i32
 
     /* modify the page table, then actually modify the host address space */
     PageTable::protect(addr, size, prot, false)?;
+    hal.flush_tlb(base, num_pages);
     mmio::protect(addr, size, prot)?;
     mem::protect(addr, size, prot)?;
-    hal.flush_tlb(base, num_pages);
     Ok(())
 }
 
@@ -247,7 +247,7 @@ pub fn mmap(
             map_from_object(addr, size, flags, prot, fd, offset)
         }
     }?;
-    PageTable::map(addr, size, prot, Protection::all());
+    PageTable::map(addr, addr, size, prot, Protection::all());
     hal.flush_tlb(addr.as_u64(), size / PAGE_SIZE);
     Ok(addr)
 }

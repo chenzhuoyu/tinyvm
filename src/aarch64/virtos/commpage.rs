@@ -10,7 +10,7 @@ const COMMPAGE_RW: Uintptr = Uintptr::new(0xfffffc000);
 
 const SLOT_TPRO: Uintptr = Uintptr::new(0xfffffc10c);
 
-fn handle_commpage_reads(pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
+fn handle_commpage(pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
     if req.kind != MmioKind::Read {
         unimplemented!(
             "COMMPAGE {kind:?} to {addr:p} at {pc:?}",
@@ -33,8 +33,20 @@ fn handle_commpage_reads(pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
 }
 
 pub(super) fn init() {
-    mmio::register(COMMPAGE_RO, PAGE_SIZE, handle_commpage_reads);
-    mmio::register(COMMPAGE_RW, PAGE_SIZE, handle_commpage_reads);
-    PageTable::map(COMMPAGE_RO, PAGE_SIZE, Protection::READ, Protection::READ);
-    PageTable::map(COMMPAGE_RW, PAGE_SIZE, Protection::READ, Protection::READ);
+    PageTable::map(
+        COMMPAGE_RO,
+        COMMPAGE_RO,
+        PAGE_SIZE,
+        Protection::READ,
+        Protection::READ,
+    );
+    PageTable::map(
+        COMMPAGE_RW,
+        COMMPAGE_RW,
+        PAGE_SIZE,
+        Protection::RW,
+        Protection::RW,
+    );
+    mmio::map(COMMPAGE_RO, PAGE_SIZE, handle_commpage);
+    mmio::map(COMMPAGE_RW, PAGE_SIZE, handle_commpage);
 }

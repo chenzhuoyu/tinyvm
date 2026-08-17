@@ -18,8 +18,8 @@ impl Vm {
     }
 
     #[inline]
-    pub fn unmap(base: u64, size: usize) {
-        hv_call!(hv_vm_unmap(base, size));
+    pub fn unmap(addr: Uintptr, size: usize) {
+        hv_call!(hv_vm_unmap(addr.as_u64(), size));
     }
 
     #[inline]

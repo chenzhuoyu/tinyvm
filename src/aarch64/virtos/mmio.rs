@@ -69,50 +69,7 @@ unsafe impl Sync for MmioRegion {}
 /// MMIO memory regions registry.
 static MMIO: RwLock<BTreeMap<Uintptr, MmioRegion>> = RwLock::new(BTreeMap::new());
 
-pub fn handle(pc: Uintptr, req: &mut MmioRequest) -> Option<MmioResponse> {
-    let mmio = MMIO.read();
-    let (&addr, region) = mmio.range(..=req.addr).next_back()?;
-
-    /* check if the registered range covers the requested range completely */
-    if addr <= req.addr && req.addr + req.size <= region.end {
-        Some(region.handler.handle(pc, req))
-    } else {
-        None
-    }
-}
-
-pub fn protect(addr: Uintptr, size: usize, prot: Protection) -> IoResult<()> {
-    let size = align_to_page(size);
-    let mut last = addr + size;
-
-    /* address should align to page */
-    if !addr.is_aligned_to(PAGE_SIZE) {
-        return Err(IoError::from_raw_os_error(libc::EINVAL));
-    }
-
-    /* scan all regions backwards, protect all gaps */
-    for (&base, region) in MMIO.read().range(..last).rev() {
-        if region.end > addr {
-            if region.end < last {
-                Vm::protect(region.end, last - region.end, prot);
-            }
-            last = base;
-        } else {
-            break;
-        }
-    }
-
-    /* the range is entirely covered by MMIO regions */
-    if last <= addr {
-        return Ok(());
-    }
-
-    /* there are still remaining pages */
-    Vm::protect(addr, last - addr, prot);
-    Ok(())
-}
-
-pub fn register(addr: Uintptr, size: usize, handler: impl MmioHandler + 'static) {
+pub fn map(addr: Uintptr, size: usize, handler: impl MmioHandler + 'static) {
     let mut mmio = MMIO.write();
     let region = mmio.range(..addr + size).next_back();
 
@@ -144,7 +101,7 @@ pub fn register(addr: Uintptr, size: usize, handler: impl MmioHandler + 'static)
     );
 }
 
-pub fn unregister(addr: Uintptr, size: usize) {
+pub fn unmap(addr: Uintptr, size: usize) {
     let mut keys = vec![];
     let mut mmio = MMIO.write();
 
@@ -179,5 +136,48 @@ pub fn unregister(addr: Uintptr, size: usize) {
         } else {
             unsafe { std::intrinsics::unreachable() }
         }
+    }
+}
+
+pub fn protect(addr: Uintptr, size: usize, prot: Protection) -> IoResult<()> {
+    let size = align_to_page(size);
+    let mut last = addr + size;
+
+    /* address should align to page */
+    if !addr.is_aligned_to(PAGE_SIZE) {
+        return Err(IoError::from_raw_os_error(libc::EINVAL));
+    }
+
+    /* scan all regions backwards, protect all gaps */
+    for (&base, region) in MMIO.read().range(..last).rev() {
+        if region.end > addr {
+            if region.end < last {
+                Vm::protect(region.end, last - region.end, prot);
+            }
+            last = base;
+        } else {
+            break;
+        }
+    }
+
+    /* the range is entirely covered by MMIO regions */
+    if last <= addr {
+        return Ok(());
+    }
+
+    /* there are still remaining pages */
+    Vm::protect(addr, last - addr, prot);
+    Ok(())
+}
+
+pub fn dispatch(pc: Uintptr, req: &mut MmioRequest) -> Option<MmioResponse> {
+    let mmio = MMIO.read();
+    let (&addr, region) = mmio.range(..=req.addr).next_back()?;
+
+    /* check if the registered range covers the requested range completely */
+    if addr <= req.addr && req.addr + req.size <= region.end {
+        Some(region.handler.handle(pc, req))
+    } else {
+        None
     }
 }

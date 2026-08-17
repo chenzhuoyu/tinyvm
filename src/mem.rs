@@ -1,13 +1,9 @@
 use std::{
     fmt::{Debug, Formatter, Result as FmtResult},
-    marker::PhantomData,
     mem::ManuallyDrop,
-    ops::{
-        Deref, DerefMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
-    },
+    ops::{Deref, DerefMut},
 };
 
-use bytes::{Buf, BufMut, buf::UninitSlice};
 use ffi::{HV_MEMORY_EXEC, HV_MEMORY_READ, HV_MEMORY_WRITE};
 
 #[cfg(target_arch = "aarch64")]
@@ -52,207 +48,23 @@ impl Debug for Protection {
     }
 }
 
-pub trait MemoryExt: Addressable {
-    fn protect(&self, prot: Protection);
-}
-
-impl<T: Addressable> MemoryExt for T {
-    #[inline]
-    fn protect(&self, prot: Protection) {
-        assert!(is_page_aligned(self.size()));
-        assert!(is_page_aligned(self.addr().addr()));
-        Vm::protect(self.addr(), self.size(), prot);
-    }
-}
-
-pub trait Addressable {
-    fn size(&self) -> usize;
-    fn addr(&self) -> Uintptr;
-}
-
-pub trait MemoryRange {
-    fn view(self, mem: &Memory) -> MemoryView<'_>;
-    fn view_mut(self, mem: &mut Memory) -> MemoryViewMut<'_>;
-}
-
-impl MemoryRange for RangeFull {
-    #[inline]
-    fn view(self, mem: &Memory) -> MemoryView<'_> {
-        MemoryView {
-            size: mem.size,
-            addr: mem.addr,
-            _ref: PhantomData,
-        }
-    }
-
-    #[inline]
-    fn view_mut(self, mem: &mut Memory) -> MemoryViewMut<'_> {
-        MemoryViewMut {
-            size: mem.size,
-            addr: mem.addr,
-            _ref: PhantomData,
-        }
-    }
-}
-
-impl MemoryRange for Range<usize> {
-    #[inline]
-    fn view(self, mem: &Memory) -> MemoryView<'_> {
-        if self.end <= mem.size && self.start <= mem.size {
-            MemoryView {
-                size: self.end.saturating_sub(self.start),
-                addr: mem.addr + self.start,
-                _ref: PhantomData,
-            }
-        } else {
-            panic!("memory view slice out of bounds: {self:?}")
-        }
-    }
-
-    #[inline]
-    fn view_mut(self, mem: &mut Memory) -> MemoryViewMut<'_> {
-        if self.end <= mem.size && self.start <= mem.size {
-            MemoryViewMut {
-                size: self.end.saturating_sub(self.start),
-                addr: mem.addr + self.start,
-                _ref: PhantomData,
-            }
-        } else {
-            panic!("memory view slice out of bounds: {self:?}")
-        }
-    }
-}
-
-impl MemoryRange for RangeTo<usize> {
-    #[inline]
-    fn view(self, mem: &Memory) -> MemoryView<'_> {
-        if self.end <= mem.size {
-            MemoryView {
-                size: self.end,
-                addr: mem.addr,
-                _ref: PhantomData,
-            }
-        } else {
-            panic!("memory view slice out of bounds: {self:?}")
-        }
-    }
-
-    #[inline]
-    fn view_mut(self, mem: &mut Memory) -> MemoryViewMut<'_> {
-        if self.end <= mem.size {
-            MemoryViewMut {
-                size: self.end,
-                addr: mem.addr,
-                _ref: PhantomData,
-            }
-        } else {
-            panic!("memory view slice out of bounds: {self:?}")
-        }
-    }
-}
-
-impl MemoryRange for RangeFrom<usize> {
-    #[inline]
-    fn view(self, mem: &Memory) -> MemoryView<'_> {
-        if self.start <= mem.size {
-            MemoryView {
-                size: mem.size - self.start,
-                addr: mem.addr + self.start,
-                _ref: PhantomData,
-            }
-        } else {
-            panic!("memory view slice out of bounds: {self:?}")
-        }
-    }
-
-    #[inline]
-    fn view_mut(self, mem: &mut Memory) -> MemoryViewMut<'_> {
-        if self.start <= mem.size {
-            MemoryViewMut {
-                size: mem.size - self.start,
-                addr: mem.addr + self.start,
-                _ref: PhantomData,
-            }
-        } else {
-            panic!("memory view slice out of bounds: {self:?}")
-        }
-    }
-}
-
-impl MemoryRange for RangeInclusive<usize> {
-    #[inline]
-    fn view(self, mem: &Memory) -> MemoryView<'_> {
-        let (start, mut end) = self.into_inner();
-        end += 1;
-        MemoryRange::view(Range { start, end }, mem)
-    }
-
-    #[inline]
-    fn view_mut(self, mem: &mut Memory) -> MemoryViewMut<'_> {
-        let (start, mut end) = self.into_inner();
-        end += 1;
-        MemoryRange::view_mut(Range { start, end }, mem)
-    }
-}
-
-impl MemoryRange for RangeToInclusive<usize> {
-    #[inline]
-    fn view(self, mem: &Memory) -> MemoryView<'_> {
-        let end = self.end + 1;
-        MemoryRange::view(RangeTo { end }, mem)
-    }
-
-    #[inline]
-    fn view_mut(self, mem: &mut Memory) -> MemoryViewMut<'_> {
-        let end = self.end + 1;
-        MemoryRange::view_mut(RangeTo { end }, mem)
-    }
-}
-
-pub struct UnmappedMemory {
+struct Pages {
     addr: Uintptr,
     size: usize,
 }
 
-impl UnmappedMemory {
+impl Pages {
     #[inline]
-    pub fn map(self, prot: Protection) -> Memory {
-        let (addr, size) = self.into_parts();
-        Vm::map(addr, size, prot);
-        Memory { addr, size }
+    fn alloc(size: usize) -> Self {
+        assert!(is_page_aligned(size));
+        let addr = Vm::alloc(size);
+        Self { addr, size }
     }
 }
 
-impl UnmappedMemory {
-    #[inline]
-    pub fn into_parts(self) -> (Uintptr, usize) {
-        let this = ManuallyDrop::new(self);
-        (this.addr, this.size)
-    }
-}
-
-impl Drop for UnmappedMemory {
+impl Drop for Pages {
     fn drop(&mut self) {
         Vm::dealloc(self.addr, self.size);
-    }
-}
-
-impl Debug for UnmappedMemory {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let end = self.addr + self.size;
-        write!(f, "unmapped_memory({:p}-{:p})", self.addr, end)
-    }
-}
-
-impl Addressable for UnmappedMemory {
-    #[inline]
-    fn size(&self) -> usize {
-        self.size
-    }
-
-    #[inline]
-    fn addr(&self) -> Uintptr {
-        self.addr
     }
 }
 
@@ -262,43 +74,41 @@ pub struct Memory {
 }
 
 impl Memory {
-    pub fn alloc(size: usize) -> UnmappedMemory {
+    pub fn map(size: usize, prot: Protection) -> Uintptr {
+        let ret = Pages::alloc(size);
+        Vm::map(ret.addr, size, prot);
+        ManuallyDrop::new(ret).addr
+    }
+
+    pub fn alloc(size: usize, prot: Protection) -> Self {
         let size = align_to_page(size);
-        let addr = Vm::alloc(size);
-        UnmappedMemory { addr, size }
-    }
-
-    pub fn from_data(data: &[u8]) -> UnmappedMemory {
-        let dest = Self::alloc(data.len());
-        let addr = dest.addr.as_ptr::<u8>();
-        unsafe { addr.copy_from_nonoverlapping(data.as_ptr(), data.len()) }
-        dest
+        let addr = Self::map(size, prot);
+        Self { addr, size }
     }
 }
 
 impl Memory {
     #[inline]
-    pub fn view<R: MemoryRange>(&self, range: R) -> MemoryView<'_> {
-        range.view(self)
+    pub const fn size(&self) -> usize {
+        self.size
     }
 
     #[inline]
-    pub fn view_mut<R: MemoryRange>(&mut self, range: R) -> MemoryViewMut<'_> {
-        range.view_mut(self)
+    pub const fn addr(&self) -> Uintptr {
+        self.addr
     }
 }
 
 impl Memory {
-    #[inline]
-    pub fn into_parts(self) -> (Uintptr, usize) {
-        let this = ManuallyDrop::new(self);
-        (this.addr, this.size)
+    pub fn protect(&self, offs: usize, size: usize, prot: Protection) {
+        assert!(is_page_aligned(size) && is_page_aligned(offs) && offs + size <= self.size);
+        Vm::protect(self.addr + offs, size, prot);
     }
 }
 
 impl Drop for Memory {
     fn drop(&mut self) {
-        Vm::unmap(self.addr.as_u64(), self.size);
+        Vm::unmap(self.addr, self.size);
         Vm::dealloc(self.addr, self.size);
     }
 }
@@ -322,107 +132,5 @@ impl DerefMut for Memory {
     #[inline]
     fn deref_mut(&mut self) -> &mut [u8] {
         unsafe { std::slice::from_raw_parts_mut(self.addr.as_ptr(), self.size) }
-    }
-}
-
-impl Addressable for Memory {
-    #[inline]
-    fn size(&self) -> usize {
-        self.size
-    }
-
-    #[inline]
-    fn addr(&self) -> Uintptr {
-        self.addr
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct MemoryView<'m> {
-    size: usize,
-    addr: Uintptr,
-    _ref: PhantomData<&'m Memory>,
-}
-
-impl Buf for MemoryView<'_> {
-    #[inline]
-    fn remaining(&self) -> usize {
-        self.size
-    }
-
-    #[inline]
-    fn chunk(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.addr.as_ptr(), self.size) }
-    }
-
-    #[inline]
-    fn advance(&mut self, cnt: usize) {
-        self.size = self.size.checked_sub(cnt).expect("advance past end");
-        self.addr += cnt;
-    }
-}
-
-impl Debug for MemoryView<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "{:p}-{:p}", self.addr, self.addr + self.size)
-    }
-}
-
-impl Addressable for MemoryView<'_> {
-    #[inline]
-    fn size(&self) -> usize {
-        self.size
-    }
-
-    #[inline]
-    fn addr(&self) -> Uintptr {
-        self.addr
-    }
-}
-
-pub struct MemoryViewMut<'m> {
-    size: usize,
-    addr: Uintptr,
-    _ref: PhantomData<&'m mut Memory>,
-}
-
-impl Debug for MemoryViewMut<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "{:p}-{:p}", self.addr, self.addr + self.size)
-    }
-}
-
-unsafe impl BufMut for MemoryViewMut<'_> {
-    #[inline]
-    fn remaining_mut(&self) -> usize {
-        self.size
-    }
-
-    #[inline]
-    unsafe fn advance_mut(&mut self, cnt: usize) {
-        self.size = self.size.checked_sub(cnt).expect("advance past end");
-        self.addr += cnt;
-    }
-
-    #[inline]
-    fn chunk_mut(&mut self) -> &mut UninitSlice {
-        unsafe {
-            UninitSlice::new(std::slice::from_raw_parts_mut(
-                self.addr.as_ptr(),
-                self.size,
-            ))
-        }
-    }
-}
-
-impl Addressable for MemoryViewMut<'_> {
-    #[inline]
-    fn size(&self) -> usize {
-        self.size
-    }
-
-    #[inline]
-    fn addr(&self) -> Uintptr {
-        self.addr
     }
 }

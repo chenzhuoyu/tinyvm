@@ -10,7 +10,7 @@ use super::{
     regs::*,
     syscall::Syscall,
     virtos::{
-        HalProvider, irq_stubs,
+        HalProvider, IRQ_STUBS,
         mmio::{self, MmioKind, MmioRequest, MmioResponse},
     },
 };
@@ -91,7 +91,7 @@ impl Cpu {
         cpu.write_reg(Reg::PC, pc);
         cpu.write_reg(Reg::CPSR, 0);
         cpu.write_sys_reg(SysReg::SP_EL0, sp);
-        cpu.write_sys_reg(SysReg::VBAR_EL1, irq_stubs());
+        cpu.write_sys_reg(SysReg::VBAR_EL1, IRQ_STUBS.as_u64());
         cpu.write_sys_reg(SysReg::CPACR_EL1, CPACR_FPEN);
         // cpu.write_sys_reg(SysReg::MDSCR_EL1, MDSCR_SS);
         cpu
@@ -166,7 +166,7 @@ impl Cpu {
             size: 4,
             kind: MmioKind::Execution,
         };
-        let Some(resp) = mmio::handle(pc, &mut req) else {
+        let Some(resp) = mmio::dispatch(pc, &mut req) else {
             panic!(
                 "unhandled page fault from instruction fetching: {self:#?}\nAddress:\n  \
                  {addr:p}\nInstruction:\n  {insn}",
@@ -216,7 +216,7 @@ impl Cpu {
             }
             req.size = 1 << iss.SAS();
         }
-        let Some(resp) = mmio::handle(pc, &mut req) else {
+        let Some(resp) = mmio::dispatch(pc, &mut req) else {
             panic!(
                 "unhandled page fault: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
                 insn = disasm(self.read_reg(Reg::PC))

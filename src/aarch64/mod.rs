@@ -14,7 +14,7 @@ use vm::Vm;
 use crate::{
     Unit,
     image::Image,
-    mem::{Addressable, Memory, Protection},
+    mem::{Memory, Protection},
     utils::ptr::Uintptr,
 };
 
@@ -105,7 +105,7 @@ fn on_load(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
             end = addr + size,
         )
     });
-    PageTable::map(addr, size, prot, max_prot);
+    PageTable::map(addr, addr, size, prot, max_prot);
     Vm::protect(addr, size, prot);
 }
 
@@ -115,12 +115,17 @@ pub fn vm_exec() -> Unit {
     virtos::init();
 
     /* create the stack */
-    let stack = Memory::alloc(INIT_STACK_SIZE).map(Protection::RW);
-    let frame = stack.addr().as_mut::<InitStackFrame>();
+    let stack = Memory::map(INIT_STACK_SIZE, Protection::RW);
+    let frame = stack.as_mut::<InitStackFrame>();
 
     /* add the stack into page table */
-    tracing::debug!("Stack is mapped at {stack:?}");
-    PageTable::map(stack.addr(), stack.size(), Protection::RW, Protection::RW);
+    PageTable::map(
+        stack,
+        stack,
+        INIT_STACK_SIZE,
+        Protection::RW,
+        Protection::RW,
+    );
 
     /* load dyld and the target image */
     let dyld = Image::dyld().entry.as_u64();

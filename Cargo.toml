@@ -6,7 +6,6 @@ version = "0.1.0"
 [dependencies]
 anyhow             = "1.0"
 bitflags           = "2.13"
-bytes              = "1.12"
 clap               = { version = "4.6", features = ["derive"] }
 fn-ptr             = "0.9"
 libc               = "0.2"

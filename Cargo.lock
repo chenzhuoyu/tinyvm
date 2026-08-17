@@ -100,12 +100,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78e2ceaf91e22593e194211930aea78a41af58e49e872474ebf4335bf649aad1"
 
 [[package]]
-name = "bytes"
-version = "1.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
-
-[[package]]
 name = "cargo-emit"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -605,7 +599,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bitflags",
- "bytes",
  "cc",
  "clap",
  "disarm64",
