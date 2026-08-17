@@ -1,4 +1,4 @@
-use super::mmio::{self, MmioKind, MmioRequest, MmioResponse, MmioSize};
+use super::mmio::{self, MmioKind, MmioRequest, MmioResponse};
 use crate::{
     aarch64::paging::{PAGE_SIZE, PageTable},
     mem::Protection,
@@ -23,11 +23,11 @@ fn handle_commpage_reads(pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
         return MmioResponse::Advance;
     }
     req.data = match req.size {
-        MmioSize::Mem8 => req.addr.read::<u8>() as u64,
-        MmioSize::Mem16 => req.addr.read::<u16>() as u64,
-        MmioSize::Mem32 => req.addr.read::<u32>() as u64,
-        MmioSize::Mem64 => req.addr.read(),
-        MmioSize::Unknown => unimplemented!("unsized read of COMMPAGE"),
+        1 => req.addr.read::<u8>() as u64,
+        2 => req.addr.read::<u16>() as u64,
+        4 => req.addr.read::<u32>() as u64,
+        8 => req.addr.read(),
+        n => unimplemented!("invalid COMMPAGE read size: {n}"),
     };
     MmioResponse::Advance
 }
@@ -35,6 +35,6 @@ fn handle_commpage_reads(pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
 pub(super) fn init() {
     mmio::register(COMMPAGE_RO, PAGE_SIZE, handle_commpage_reads);
     mmio::register(COMMPAGE_RW, PAGE_SIZE, handle_commpage_reads);
-    PageTable::insert(COMMPAGE_RO, PAGE_SIZE, Protection::READ, Protection::READ);
-    PageTable::insert(COMMPAGE_RW, PAGE_SIZE, Protection::READ, Protection::READ);
+    PageTable::map(COMMPAGE_RO, PAGE_SIZE, Protection::READ, Protection::READ);
+    PageTable::map(COMMPAGE_RW, PAGE_SIZE, Protection::READ, Protection::READ);
 }

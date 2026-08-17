@@ -8,11 +8,12 @@ use parking_lot::Mutex;
 
 use super::{
     HalProvider, faults, mem,
-    mmio::{self, MmioHandler, MmioRequest, MmioResponse},
+    mmio::{self, MmioHandler, MmioKind, MmioRequest, MmioResponse},
     tlb::TlbProvider,
 };
 use crate::{
     aarch64::{
+        disasm::disasm,
         paging::{PAGE_SIZE, PageTable},
         vm::Vm,
     },
@@ -53,6 +54,126 @@ impl MmioHandler for FileMap {
         faults::fetch_page(pc, req.addr, self.base, &mut *file, Some(prot), self.offset);
         MmioResponse::Retry
     }
+}
+
+struct ObjectMap {
+    size: usize,
+    addr: Uintptr,
+}
+
+impl ObjectMap {
+    #[inline]
+    fn map(addr: Uintptr, size: usize) -> Self {
+        Self { size, addr }
+    }
+}
+
+impl Drop for ObjectMap {
+    fn drop(&mut self) {
+        unsafe { libc::munmap(self.addr.as_ptr(), self.size) };
+    }
+}
+
+impl MmioHandler for ObjectMap {
+    fn handle(&self, pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
+        assert!(
+            req.addr >= self.addr && req.addr + req.size <= self.addr + self.size,
+            "MMIO access out of range"
+        );
+        match req.kind {
+            MmioKind::Read => {
+                req.data = match req.size {
+                    1 => req.addr.read::<u8>() as u64,
+                    2 => req.addr.read::<u16>() as u64,
+                    4 => req.addr.read::<u32>() as u64,
+                    8 => req.addr.read::<u64>(),
+                    n => unimplemented!("read {n} bytes shm: {insn}", insn = disasm(pc)),
+                };
+            }
+            MmioKind::ReadAtomic => {
+                unimplemented!("atomic read from shared memory: {insn}", insn = disasm(pc));
+            }
+            MmioKind::Write => {
+                unimplemented!("write to shared memory: {insn}", insn = disasm(pc));
+            }
+            MmioKind::WriteAtomic => {
+                unimplemented!("atomic write to shared memory: {insn}", insn = disasm(pc));
+            }
+            MmioKind::Execution => {
+                unimplemented!("execution on shared memory: {insn}", insn = disasm(pc));
+            }
+        }
+        MmioResponse::Advance
+    }
+}
+
+fn map_regular(
+    addr: Uintptr,
+    size: usize,
+    prot: Protection,
+    flags: i32,
+    fd: i32,
+) -> IoResult<Uintptr> {
+    let addr = unsafe {
+        match libc::mmap(addr.as_ptr(), size, prot.bits() as i32, flags, fd, 0) {
+            libc::MAP_FAILED => return Err(IoError::last_os_error()),
+            mem => Uintptr::from(mem),
+        }
+    };
+    Vm::map(addr, size, prot);
+    Ok(addr)
+}
+
+fn map_from_file(
+    addr: Uintptr,
+    size: usize,
+    flags: i32,
+    fd: i32,
+    offset: libc::off_t,
+) -> IoResult<Uintptr> {
+    if offset % (PAGE_SIZE as i64) != 0 {
+        return Err(IoError::from_raw_os_error(libc::EINVAL));
+    }
+    let addr = unsafe {
+        Uintptr::from(libc::mmap(
+            addr.as_ptr(),
+            size,
+            libc::PROT_NONE,
+            libc::MAP_PRIVATE | libc::MAP_ANON,
+            -1,
+            0,
+        ))
+    };
+    if addr.as_ptr() == libc::MAP_FAILED {
+        return Err(IoError::last_os_error());
+    }
+    mmio::register(addr, size, FileMap::new(addr, fd, flags, offset));
+    Ok(addr)
+}
+
+fn map_from_object(
+    addr: Uintptr,
+    size: usize,
+    flags: i32,
+    prot: Protection,
+    fd: i32,
+    offset: libc::off_t,
+) -> IoResult<Uintptr> {
+    let addr = unsafe {
+        Uintptr::from(libc::mmap(
+            addr.as_ptr(),
+            size,
+            prot.bits() as i32,
+            flags,
+            fd,
+            offset,
+        ))
+    };
+    if addr.as_ptr() == libc::MAP_FAILED {
+        return Err(IoError::last_os_error());
+    }
+    mmio::register(addr, size, ObjectMap::map(addr, size));
+    Ok(addr)
 }
 
 pub fn msync(_hal: &impl HalProvider, addr: Uintptr, len: usize, flags: i32) -> IoResult<()> {
@@ -102,69 +223,31 @@ pub fn mmap(
     len: usize,
     prot: i32,
     flags: i32,
-    mut fd: i32,
+    fd: i32,
     offset: libc::off_t,
 ) -> IoResult<Uintptr> {
-    let map_fd = fd;
-    let map_flags = flags | libc::MAP_ANON;
-    let mut map_prot = prot & !libc::PROT_EXEC;
-
-    /* parse protection bits */
+    let size = {
+        if len == 0 {
+            return Err(IoError::from_raw_os_error(libc::EINVAL));
+        } else {
+            align_to_page(len)
+        }
+    };
     let Some(prot) = Protection::from_bits(prot as u64) else {
         return Err(IoError::from_raw_os_error(libc::EINVAL));
     };
-
-    /* only map real files with MMIO */
-    if !is_real_file(fd) {
-        let bits = prot.bits() as i32;
-        let size = align_to_page(len);
-
-        let addr = unsafe {
-            match libc::mmap(addr.as_ptr(), len, bits, flags, fd, offset) {
-                libc::MAP_FAILED => return Err(IoError::last_os_error()),
-                mem => Uintptr::from(mem),
-            }
-        };
-
-        Vm::map(addr, size, prot);
-        PageTable::insert(addr, size, prot, Protection::all());
-        hal.flush_tlb(addr.as_u64(), size / PAGE_SIZE);
-        return Ok(addr);
-    }
-
-    /* no file mappings on host side, always map them as regular pages and populate later with
-     * MMIO handlers */
-    if flags & libc::MAP_ANON == 0 {
-        if offset % (PAGE_SIZE as i64) != 0 {
-            return Err(IoError::from_raw_os_error(libc::EINVAL));
+    let addr = {
+        if flags & libc::MAP_ANON != 0 {
+            map_regular(addr, size, prot, flags, fd)
+        } else if fd < 0 {
+            Err(IoError::from_raw_os_error(libc::EINVAL))
+        } else if is_real_file(fd) {
+            map_from_file(addr, size, flags, fd, offset)
+        } else {
+            map_from_object(addr, size, flags, prot, fd, offset)
         }
-        map_prot = libc::PROT_NONE;
-        fd = 0;
-    }
-
-    /* always map as anonymous non-executable pages at host side (fd may have extra flags for
-     * MAP_ANON, so keep them) */
-    let addr = unsafe {
-        match libc::mmap(addr.as_ptr(), len, map_prot, map_flags, fd, offset) {
-            libc::MAP_FAILED => return Err(IoError::last_os_error()),
-            mem => Uintptr::from(mem),
-        }
-    };
-
-    /* align the size to page boundary */
-    let size = align_to_page(len);
-    let mut vm_prot = prot;
-
-    /* register file mappings as MMIO */
-    if flags & libc::MAP_ANON == 0 {
-        let handler = FileMap::new(addr, map_fd, flags, offset);
-        mmio::register(addr, size, handler);
-        vm_prot = Protection::NONE;
-    }
-
-    /* insert into page table */
-    Vm::map(addr, size, vm_prot);
-    PageTable::insert(addr, size, prot, Protection::all());
+    }?;
+    PageTable::map(addr, size, prot, Protection::all());
     hal.flush_tlb(addr.as_u64(), size / PAGE_SIZE);
     Ok(addr)
 }

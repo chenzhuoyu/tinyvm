@@ -28,12 +28,7 @@ use crate::{
     },
     macros::define_bit_field,
     mem::{Addressable, Memory, Protection},
-    utils::{
-        io::MemoryIo,
-        path::is_real_file,
-        ptr::Uintptr,
-        size::{align_to_page, is_page_aligned},
-    },
+    utils::{io::MemoryIo, path::is_real_file, ptr::Uintptr, size::is_page_aligned},
 };
 
 const VM_PROT_ZF: i32 = 0x10;
@@ -86,8 +81,8 @@ impl SliderPage {
 impl SliderPage {
     fn do_load(&self, pc: Uintptr) {
         if !self.flag.load(Ordering::Acquire) {
-            let resp = mmio::handle(pc, &mut MmioRequest::read_unsized(self.addr));
-            assert_eq!(resp, Some(MmioResponse::Retry));
+            let mut req = MmioRequest::read_unsized(self.addr);
+            assert_eq!(mmio::handle(pc, &mut req), Some(MmioResponse::Retry));
             self.flag.store(true, Ordering::Release);
         }
     }
@@ -257,16 +252,12 @@ static SHARED_REGION: RwLock<SharedRegionData> = {
 };
 
 impl SharedRegion {
-    fn protect(&self, addr: Uintptr) {
+    fn protect(&self, addr: Uintptr) -> IoResult<()> {
         let page = CacheSlider::page(addr);
         let prot = PageTable::lookup(addr);
-
-        /* set the protection bits in host & guest */
-        if let Err(err) = mem::protect(page, PAGE_SIZE, prot) {
-            panic!("cannot set memory protections on shared region: {err}");
-        } else {
-            Vm::protect(page, PAGE_SIZE, prot);
-        }
+        mem::protect(page, PAGE_SIZE, prot)?;
+        Vm::protect(page, PAGE_SIZE, prot);
+        Ok(())
     }
 }
 
@@ -305,7 +296,7 @@ impl MmioHandler for SharedRegion {
         );
         if let Some(slider) = map.slider.as_ref() {
             slider.slide(pc, CacheSlider::page(req.addr), base);
-            self.protect(req.addr);
+            self.protect(req.addr).expect("cannot protect memory");
         }
         MmioResponse::Retry
     }
@@ -386,13 +377,12 @@ pub fn shared_region_map_and_slide_2_np(
         "mapping shared region with empty virtual address range"
     );
 
-    /* allocate a block of memory with no access to guest to use MMIO as an on-demand page-in
-     * mechanism */
-    let size = align_to_page(max_virt - min_virt);
-    let block = Memory::alloc(size).map(Protection::NONE);
-
-    /* calculate the ASLR slide */
+    /* allocate a block of memory without mapping to guest space to use MMIO as an on-demand
+     * page-in mechanism, and calculate the ASLR slide */
+    let block = Memory::alloc(max_virt - min_virt);
     let slide = block.addr().addr().wrapping_sub(min_virt);
+
+    /* iterate over mappings */
     let mut pages = HashMap::new();
     let mut miter = mappings.iter().copied();
 
@@ -425,7 +415,7 @@ pub fn shared_region_map_and_slide_2_np(
             let size = item.sms_size as usize;
 
             /* add to guest page table */
-            PageTable::insert(
+            PageTable::map(
                 addr,
                 size,
                 prot,
@@ -438,7 +428,7 @@ pub fn shared_region_map_and_slide_2_np(
                     unsafe {
                         let src = item.sms_file_offset as *const u8;
                         std::ptr::copy_nonoverlapping(src, addr.as_ptr(), size);
-                        Vm::protect(addr, size, prot);
+                        Vm::map(addr, size, prot);
                         continue;
                     }
                 } else {
@@ -499,18 +489,16 @@ pub fn shared_region_map_and_slide_2_np(
         "there are more mappings to process than those required by files"
     );
 
-    /* register the shared region */
-    region.start = block.into_parts().0;
-    shared_data.replace(region.start, size);
+    /* get the address and size of the memory block */
+    let (addr, size) = block.into_parts();
+    let num_pages = size / PAGE_SIZE;
 
-    // TODO: remove this
-    for (&base, entry) in region.mappings.iter() {
-        let file = region.files[entry.file].get_mut();
-        eprintln!("{base:p}-{:p} {:?}", base + entry.entry.sms_size, file);
-    }
+    /* register the shared region */
+    region.start = addr;
+    shared_data.replace(addr, size);
 
     /* flusth TLB and add the shared region to MMIO */
-    hal.flush_tlb(region.start.as_u64(), size / PAGE_SIZE);
+    hal.flush_tlb(region.start.as_u64(), num_pages);
     mmio::register(region.start, size, region);
     Ok(())
 }

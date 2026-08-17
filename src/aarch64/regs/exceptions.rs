@@ -117,6 +117,18 @@ define_bit_field! {
         RES0: 27,
     }
 
+    pub struct InstAbortISS : u32 {
+        IFSC  : 6,
+        RES0a : 1,
+        S1PTW : 1,
+        RES0b : 1,
+        EA    : 1,
+        FnV   : 1,
+        SET   : 2,
+        RES0c : 1,
+        PFV   : 1,
+    }
+
     pub struct DataAbortISS : u32 {
         DFSC  : 6,
         WnR   : 1,
@@ -142,6 +154,26 @@ define_bit_field! {
         Op1 : 3,
         Op2 : 3,
         Op0 : 2,
+    }
+}
+
+impl InstAbortISS {
+    const IFSC_TR_FAULT: u32 = 0b000100;
+    const IFSC_FAULT_MASK: u32 = 0b111100;
+
+    #[inline(always)]
+    pub const fn is_translation_fault(self) -> bool {
+        self.IFSC() & Self::IFSC_FAULT_MASK == Self::IFSC_TR_FAULT
+    }
+}
+
+impl DataAbortISS {
+    const DFSC_TR_FAULT: u32 = 0b000100;
+    const DFSC_FAULT_MASK: u32 = 0b111100;
+
+    #[inline(always)]
+    pub const fn is_translation_fault(self) -> bool {
+        self.DFSC() & Self::DFSC_FAULT_MASK == Self::DFSC_TR_FAULT
     }
 }
 

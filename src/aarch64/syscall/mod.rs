@@ -209,29 +209,32 @@ impl Syscall<'_> {
 
     fn dispatch_mach(&mut self, mach: MachTrap) {
         mod impls {
-            pub(super) use super::virtos::{mach_vm::*, task::*};
+            pub(super) use super::virtos::{mach_msg::*, mach_vm::*, task::*};
         }
         macro_rules! handle_mach_trap {
-            ($($name:ident $(($($field:ident),* $(,)?))?),+ $(,)?) => {
+            ($($name:ident ($($args:ident)?)),+ $(,)?) => {
                 match mach {
                     $(
-                        handle_mach_trap!(@HANDLER $name args @($($($field),*)?)) => {
-                            self.args[0] = impls::$name(self.cpu, $($(args.$field),*)?) as u64;
+                        handle_mach_trap!(@HANDLER $name [$($args)?]) => {
+                            self.args[0] = impls::$name(self.cpu, $($args)?) as u64;
                         }
                     )*
                     MachTrap::Unknown(..) => self.args[0] = libc::KERN_INVALID_ARGUMENT as u64,
                     _ => self.forward(),
                 }
             };
-            (@HANDLER $name:ident $args:ident @($($_:ident),+)) => { MachTrap::$name($args) };
-            (@HANDLER $name:ident $_:ident @()) => { MachTrap::$name };
+            (@HANDLER $name:ident [$args:ident]) => { MachTrap::$name($args) };
+            (@HANDLER $name:ident []) => { MachTrap::$name };
         }
         handle_mach_trap! {
-            _kernelrpc_mach_vm_allocate_trap(target, addr, size, flags),
-            _kernelrpc_mach_vm_deallocate_trap(target, address, size),
-            _kernelrpc_mach_vm_protect_trap(target, address, size, set_maximum, new_protection),
-            _kernelrpc_mach_vm_map_trap(target, address, size, mask, flags, cur_protection),
-            task_self_trap,
+            _kernelrpc_mach_vm_allocate_trap(args),
+            _kernelrpc_mach_vm_deallocate_trap(args),
+            _kernelrpc_mach_vm_protect_trap(args),
+            _kernelrpc_mach_vm_map_trap(args),
+            task_self_trap(),
+            mach_msg_trap(args),
+            mach_msg_overwrite_trap(args),
+            mach_msg2_trap(args),
         }
     }
 

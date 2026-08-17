@@ -11,7 +11,7 @@ use super::{
     syscall::Syscall,
     virtos::{
         HalProvider, irq_stubs,
-        mmio::{self, MmioKind, MmioRequest, MmioResponse, MmioSize},
+        mmio::{self, MmioKind, MmioRequest, MmioResponse},
     },
 };
 use crate::{hv_call, utils::ptr::Uintptr};
@@ -108,7 +108,8 @@ impl Cpu {
             }
             Exception::INST_ABORT => {
                 let pc = self.read_reg(Reg::PC);
-                self.handle_inst_abort(pc.into(), exc.phys_addr);
+                let iss = InstAbortISS(exc.syndrome.ISS() as u32);
+                self.handle_inst_abort(pc.into(), iss, exc.phys_addr);
             }
             Exception::DATA_ABORT => {
                 let pc = self.read_reg(Reg::PC);
@@ -151,11 +152,18 @@ impl Cpu {
         }
     }
 
-    fn handle_inst_abort(&mut self, pc: Uintptr, addr: Uintptr) {
+    fn handle_inst_abort(&mut self, pc: Uintptr, iss: InstAbortISS, addr: Uintptr) {
+        if !iss.is_translation_fault() {
+            panic!(
+                "segmentation fault from instruction fetching: {self:#?}\nAddress:\n  \
+                 {addr:p}\nInstruction:\n  {insn}",
+                insn = disasm(self.read_reg(Reg::PC))
+            );
+        }
         let mut req = MmioRequest {
             addr,
             data: 0,
-            size: MmioSize::Mem32,
+            size: 4,
             kind: MmioKind::Execution,
         };
         let Some(resp) = mmio::handle(pc, &mut req) else {
@@ -180,47 +188,34 @@ impl Cpu {
         if iss.S1PTW() == 1 {
             panic!("page table fault on state 1 translation lookup");
         }
-        let mut kind = match iss.WnR() {
-            0 => MmioKind::Read,
-            1 => MmioKind::Write,
-            _ => unreachable!(),
+        if !iss.is_translation_fault() {
+            panic!(
+                "segmentation fault: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
+                insn = disasm(self.read_reg(Reg::PC))
+            );
+        }
+        let mut req = MmioRequest {
+            addr,
+            data: 0,
+            size: 0,
+            kind: MmioKind::Read,
         };
-        let mut req = {
-            if iss.ISV() == 1 {
-                let data = match iss.WnR() {
-                    0 => 0u64,
-                    1 => self.read_reg(Reg::from(iss.SRT())),
-                    _ => unreachable!(),
-                };
-                let size = match iss.SAS() {
-                    0b00 => MmioSize::Mem8,
-                    0b01 => MmioSize::Mem16,
-                    0b10 => MmioSize::Mem32,
-                    0b11 => MmioSize::Mem64,
-                    _ => unreachable!(),
-                };
-                if iss.AR() == 1 {
-                    match kind {
-                        MmioKind::Read => kind = MmioKind::ReadAtomic,
-                        MmioKind::Write => kind = MmioKind::WriteAtomic,
-                        _ => unreachable!(),
-                    }
-                }
-                MmioRequest {
-                    data,
-                    addr,
-                    size,
-                    kind,
-                }
-            } else {
-                MmioRequest {
-                    addr,
-                    kind,
-                    data: 0,
-                    size: MmioSize::Unknown,
+        if iss.WnR() == 1 {
+            req.kind = MmioKind::Write;
+        }
+        if iss.ISV() == 1 {
+            if iss.AR() == 1 {
+                if iss.WnR() == 1 {
+                    req.kind = MmioKind::ReadAtomic;
+                } else {
+                    req.kind = MmioKind::WriteAtomic;
                 }
             }
-        };
+            if iss.AR() == 0 && iss.WnR() == 1 {
+                req.data = self.read_reg(Reg::from(iss.SRT()));
+            }
+            req.size = 1 << iss.SAS();
+        }
         let Some(resp) = mmio::handle(pc, &mut req) else {
             panic!(
                 "unhandled page fault: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",

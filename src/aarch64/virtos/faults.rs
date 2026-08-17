@@ -23,10 +23,13 @@ fn do_fetch_page<F: Read + Seek>(
         "calculated page address {base:p} does not contain the requested address {addr:p}",
     );
 
+    /* map pages into VM */
+    Vm::map(base, PAGE_SIZE, Protection::WRITE);
+    mem::protect(base, PAGE_SIZE, Protection::WRITE)?;
+
     /* seek to the specified location */
     let mut page = {
         file.seek(SeekFrom::Start((offset + offs) as u64))?;
-        mem::protect(base, PAGE_SIZE, Protection::WRITE)?;
         base.as_mut::<[u8; PAGE_SIZE]>().as_mut_slice()
     };
 

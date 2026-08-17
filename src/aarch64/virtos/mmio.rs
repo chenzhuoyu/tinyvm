@@ -21,33 +21,11 @@ pub enum MmioKind {
     Execution,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MmioSize {
-    Mem8,
-    Mem16,
-    Mem32,
-    Mem64,
-    Unknown,
-}
-
-impl MmioSize {
-    #[inline(always)]
-    pub const fn bytes(self) -> usize {
-        match self {
-            Self::Mem8 => 1,
-            Self::Mem16 => 2,
-            Self::Mem32 => 4,
-            Self::Mem64 => 8,
-            Self::Unknown => 1,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct MmioRequest {
     pub data: u64,
+    pub size: usize,
     pub addr: Uintptr,
-    pub size: MmioSize,
     pub kind: MmioKind,
 }
 
@@ -56,8 +34,8 @@ impl MmioRequest {
     pub const fn read_unsized(addr: Uintptr) -> Self {
         Self {
             addr,
+            size: 0,
             data: 0,
-            size: MmioSize::Unknown,
             kind: MmioKind::Read,
         }
     }
@@ -96,7 +74,7 @@ pub fn handle(pc: Uintptr, req: &mut MmioRequest) -> Option<MmioResponse> {
     let (&addr, region) = mmio.range(..=req.addr).next_back()?;
 
     /* check if the registered range covers the requested range completely */
-    if addr <= req.addr && req.addr + req.size.bytes() <= region.end {
+    if addr <= req.addr && req.addr + req.size <= region.end {
         Some(region.handler.handle(pc, req))
     } else {
         None

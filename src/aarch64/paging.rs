@@ -326,11 +326,6 @@ impl PageFault {
     }
 
     #[inline]
-    fn eexist(level: FaultLevel) -> Self {
-        Self::new(libc::EEXIST, level)
-    }
-
-    #[inline]
     fn einval(level: FaultLevel) -> Self {
         Self::new(libc::EINVAL, level)
     }
@@ -425,10 +420,10 @@ impl PageTable {
         num_pages: usize,
         prot: Protection,
         max_prot: Protection,
-    ) -> PageUnit {
+    ) {
         for i in 0..num_pages {
             if self.page_of(addr + i * PAGE_SIZE).is_ok() {
-                return Err(PageFault::eexist(FaultLevel::L3));
+                panic!("page entry for {addr:p} already exists");
             }
         }
         for _ in 0..num_pages {
@@ -438,7 +433,6 @@ impl PageTable {
             next[l3].set_page(addr, prot, max_prot);
             addr += PAGE_SIZE;
         }
-        Ok(())
     }
 
     fn do_unmap(&mut self, mut addr: Uintptr, num_pages: usize) -> PageUnit {
@@ -504,34 +498,22 @@ impl PageTable {
             panic!("Page Table is not initialized")
         }
     }
-
-    #[inline]
-    pub fn remove(addr: Uintptr, size: usize) {
-        if let Err(err) = Self::unmap(addr, size) {
-            panic!("cannot remove page table entry: {err}");
-        }
-    }
-
-    #[inline]
-    pub fn insert(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
-        if let Err(err) = Self::map(addr, size, prot, max_prot) {
-            panic!("cannot insert page table entry: {err}");
-        }
-    }
 }
 
 impl PageTable {
-    pub fn map(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) -> PageUnit {
-        if let Some(tab) = unsafe { PAGE_TABLE.as_mut() } {
-            if addr.addr().is_multiple_of(PAGE_SIZE) {
-                let _lock = PAGE_LOCK.lock();
-                tab.do_map(addr, size.div_ceil(PAGE_SIZE), prot, max_prot)
-            } else {
-                Err(PageFault::einval(FaultLevel::L1))
-            }
-        } else {
-            panic!("Page Table is not initialized")
-        }
+    pub fn map(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
+        assert!(
+            addr.addr().is_multiple_of(PAGE_SIZE),
+            "page size is not a multiple of {PAGE_SIZE}"
+        );
+        let tab = unsafe {
+            PAGE_TABLE
+                .as_mut()
+                .unwrap_or_else(|| panic!("Page Table is not initialized"))
+        };
+        let count = size.div_ceil(PAGE_SIZE);
+        let _lock = PAGE_LOCK.lock();
+        tab.do_map(addr, count, prot, max_prot);
     }
 
     pub fn unmap(addr: Uintptr, size: usize) -> PageUnit {

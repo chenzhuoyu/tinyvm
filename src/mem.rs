@@ -244,6 +244,18 @@ impl Debug for UnmappedMemory {
     }
 }
 
+impl Addressable for UnmappedMemory {
+    #[inline]
+    fn size(&self) -> usize {
+        self.size
+    }
+
+    #[inline]
+    fn addr(&self) -> Uintptr {
+        self.addr
+    }
+}
+
 pub struct Memory {
     addr: Uintptr,
     size: usize,

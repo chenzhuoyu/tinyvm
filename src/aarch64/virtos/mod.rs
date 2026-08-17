@@ -3,6 +3,7 @@
 pub mod bsd_mman;
 pub mod commpage;
 pub mod faults;
+pub mod mach_msg;
 pub mod mach_vm;
 pub mod mem;
 pub mod mmio;
@@ -62,6 +63,6 @@ pub fn init() {
 
     /* initialize the page table */
     PageTable::init();
-    PageTable::insert(phys, size, Protection::RX, Protection::RX);
+    PageTable::map(phys, size, Protection::RX, Protection::RX);
     commpage::init();
 }

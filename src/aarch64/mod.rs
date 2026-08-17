@@ -105,7 +105,7 @@ fn on_load(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
             end = addr + size,
         )
     });
-    PageTable::insert(addr, size, prot, max_prot);
+    PageTable::map(addr, size, prot, max_prot);
     Vm::protect(addr, size, prot);
 }
 
@@ -120,7 +120,7 @@ pub fn vm_exec() -> Unit {
 
     /* add the stack into page table */
     tracing::debug!("Stack is mapped at {stack:?}");
-    PageTable::insert(stack.addr(), stack.size(), Protection::RW, Protection::RW);
+    PageTable::map(stack.addr(), stack.size(), Protection::RW, Protection::RW);
 
     /* load dyld and the target image */
     let dyld = Image::dyld().entry.as_u64();
