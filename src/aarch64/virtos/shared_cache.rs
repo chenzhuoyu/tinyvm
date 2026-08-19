@@ -13,17 +13,18 @@ use std::{
 use parking_lot::{Mutex, RwLock};
 use smallvec::SmallVec;
 
-use super::{
-    HalProvider, faults, mem,
-    mmio::{self, MmioHandler, MmioRequest, MmioResponse},
-    pac::SigningKey,
-    tlb::TlbProvider,
-};
 use crate::{
     aarch64::{
         disasm::disasm,
-        paging::{PAGE_SIZE, PageTable},
+        paging::PAGE_SIZE,
         syscall::bsd::{shared_file_np, shared_mapping_np},
+        virtos::{
+            HalProvider, faults,
+            mem::{VmKind, VmMap},
+            mmio::{self, MmioHandler, MmioRequest, MmioResponse},
+            pac::SigningKey,
+            tlb::TlbProvider,
+        },
         vm::Vm,
     },
     macros::define_bit_field,
@@ -87,7 +88,7 @@ impl SliderPage {
     fn do_load(&self, pc: Uintptr) {
         if !self.flag.load(Ordering::Acquire) {
             let mut req = MmioRequest::read_unsized(self.addr);
-            assert_eq!(mmio::dispatch(pc, &mut req), Some(MmioResponse::Retry));
+            assert_eq!(VmMap::handle_mmio(pc, &mut req), Some(MmioResponse::Retry));
             self.flag.store(true, Ordering::Release);
         }
     }
@@ -261,11 +262,12 @@ static SHARED_REGION: RwLock<SharedRegionData> = {
 
 impl SharedRegion {
     fn protect(&self, addr: Uintptr) -> IoResult<()> {
-        let page = CacheSlider::page(addr);
-        let prot = PageTable::lookup(addr);
-        mem::protect(page, PAGE_SIZE, prot)?;
-        Vm::protect(page, PAGE_SIZE, prot);
-        Ok(())
+        VmMap::protect(
+            CacheSlider::page(addr),
+            PAGE_SIZE,
+            VmMap::lookup(addr),
+            false,
+        )
     }
 }
 
@@ -289,17 +291,17 @@ impl MmioHandler for SharedRegion {
         }
         let prot = {
             if map.slider.is_none() {
-                Some(PageTable::lookup(req.addr))
+                VmMap::lookup(req.addr)
             } else {
-                None
+                Protection::RW
             }
         };
         faults::fetch_page(
             pc,
             req.addr,
             base,
-            &mut *self.files[map.file].lock(),
             prot,
+            &mut *self.files[map.file].lock(),
             map.entry.sms_file_offset as usize,
         );
         if let Some(slider) = map.slider.as_ref() {
@@ -390,6 +392,13 @@ pub fn shared_region_map_and_slide_2_np(
     let block = Vm::alloc(align_to_page(max_virt - min_virt));
     let slide = block.addr().wrapping_sub(min_virt);
 
+    /* get the address and size of the memory block */
+    let size = align_to_page(max_virt - min_virt);
+
+    /* register the shared region */
+    region.start = block;
+    shared_data.replace(block, size);
+
     /* iterate over mappings */
     let mut pages = HashMap::new();
     let mut miter = mappings.iter().copied();
@@ -423,8 +432,8 @@ pub fn shared_region_map_and_slide_2_np(
             let size = item.sms_size as usize;
 
             /* add to guest page table */
-            PageTable::map(
-                addr,
+            VmMap::map(
+                VmKind::Regular,
                 addr,
                 size,
                 prot,
@@ -493,22 +502,7 @@ pub fn shared_region_map_and_slide_2_np(
     }
 
     /* check the mappings count */
-    assert!(
-        miter.next().is_none(),
-        "there are more mappings to process than those required by files"
-    );
-
-    /* get the address and size of the memory block */
-    let size = align_to_page(max_virt - min_virt);
-    let num_pages = size / PAGE_SIZE;
-
-    /* register the shared region */
-    region.start = block;
-    shared_data.replace(block, size);
-
-    /* flusth TLB and add the shared region to MMIO */
-    hal.flush_tlb(region.start.as_u64(), num_pages);
-    mmio::map(region.start, size, region);
+    assert!(miter.next().is_none(), "excessive mappings");
     Ok(())
 }
 

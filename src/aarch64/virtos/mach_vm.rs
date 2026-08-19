@@ -1,72 +1,62 @@
-use std::io::Error as IoError;
-
 use mach2::{
-    kern_return::{
-        KERN_FAILURE, KERN_INVALID_ADDRESS, KERN_INVALID_ARGUMENT, KERN_MEMORY_ERROR,
-        KERN_PROTECTION_FAILURE, KERN_SUCCESS, kern_return_t,
-    },
+    kern_return::{KERN_INVALID_ARGUMENT, KERN_SUCCESS, kern_return_t},
     port::MACH_PORT_NULL,
     vm::{mach_vm_allocate, mach_vm_deallocate, mach_vm_map, mach_vm_protect},
     vm_inherit::VM_INHERIT_DEFAULT,
     vm_prot::{VM_PROT_ALL, VM_PROT_EXECUTE, VM_PROT_READ, VM_PROT_WRITE},
-    vm_statistics::VM_FLAGS_ANYWHERE,
 };
 
-use super::{HalProvider, mmio, task::TASK_SELF, tlb::TlbProvider};
 use crate::{
     aarch64::{
-        paging::{PAGE_SIZE, PageTable},
+        errors::AsKernReturn,
+        paging::PAGE_SIZE,
         syscall::mach::{
             ARG__kernelrpc_mach_vm_allocate_trap, ARG__kernelrpc_mach_vm_deallocate_trap,
             ARG__kernelrpc_mach_vm_map_trap, ARG__kernelrpc_mach_vm_protect_trap,
         },
-        vm::Vm,
+        virtos::{
+            HalProvider,
+            mem::{VmKind, VmMap},
+            task::TASK_SELF,
+            tlb::TlbProvider,
+        },
     },
     mem::Protection,
     utils::{ptr::Uintptr, size::align_to_page},
 };
 
-trait AsKernReturn {
-    fn as_kern_return(&self) -> kern_return_t;
-}
-
-impl AsKernReturn for IoError {
-    #[inline]
-    fn as_kern_return(&self) -> kern_return_t {
-        if let Some(errno) = self.raw_os_error() {
-            match errno {
-                libc::EACCES => KERN_PROTECTION_FAILURE,
-                libc::ENOMEM => KERN_INVALID_ADDRESS,
-                libc::EINVAL => KERN_INVALID_ARGUMENT,
-                _ => KERN_MEMORY_ERROR,
-            }
-        } else {
-            KERN_FAILURE
-        }
-    }
-}
-
 pub fn _kernelrpc_mach_vm_allocate_trap(
-    hal: &impl HalProvider,
+    _hal: &impl HalProvider,
     args: ARG__kernelrpc_mach_vm_allocate_trap,
 ) -> kern_return_t {
     let task = *TASK_SELF;
     let result = unsafe { mach_vm_allocate(args.target, args.addr, args.size, args.flags) };
 
     /* not targeting self, just forward the result */
-    if args.target != task {
+    if args.target != task || result != KERN_SUCCESS {
         return result;
     }
 
-    /* get the mapped address */
-    let size = align_to_page(args.size as usize);
-    let addr = unsafe { Uintptr::from(*args.addr) };
-
     /* insert into guest address space and page table */
-    PageTable::map(addr, addr, size, Protection::RW, Protection::all());
-    hal.flush_tlb(addr.as_u64(), size / PAGE_SIZE);
-    Vm::map(addr, size, Protection::RW);
-    KERN_SUCCESS
+    let ret = unsafe {
+        VmMap::map(
+            VmKind::Regular,
+            Uintptr::from(*args.addr),
+            align_to_page(args.size as usize),
+            Protection::RW,
+            Protection::all(),
+        )
+    };
+
+    /* deallocate memory if map failed */
+    if let Err(err) = ret {
+        unsafe {
+            mach_vm_deallocate(args.target, *args.addr, args.size);
+            err.as_kern_return()
+        }
+    } else {
+        KERN_SUCCESS
+    }
 }
 
 pub fn _kernelrpc_mach_vm_deallocate_trap(
@@ -74,13 +64,13 @@ pub fn _kernelrpc_mach_vm_deallocate_trap(
     args: ARG__kernelrpc_mach_vm_deallocate_trap,
 ) -> kern_return_t {
     if args.target == *TASK_SELF {
-        if let Err(err) = PageTable::unmap(args.address, args.size as usize) {
-            return err.error.as_kern_return();
+        if let Err(err) = VmMap::unmap(args.address, args.size as usize) {
+            return err.as_kern_return();
         }
-        let size = align_to_page(args.size as usize);
-        Vm::unmap(args.address, size);
-        mmio::unmap(args.address, size);
-        hal.flush_tlb(args.address.as_u64(), size / PAGE_SIZE);
+        hal.flush_tlb(
+            args.address.as_u64(),
+            (args.size as usize).div_ceil(PAGE_SIZE),
+        );
     }
     unsafe { mach_vm_deallocate(args.target, args.address.as_u64(), args.size) }
 }
@@ -97,10 +87,7 @@ pub fn _kernelrpc_mach_vm_protect_trap(
         let Some(prot) = Protection::from_bits(args.new_protection as u64) else {
             return KERN_INVALID_ARGUMENT;
         };
-        if let Err(err) = PageTable::protect(args.address, size, prot, args.set_maximum != 0) {
-            return err.error.as_kern_return();
-        }
-        if let Err(err) = mmio::protect(args.address, size, prot) {
+        if let Err(err) = VmMap::protect(args.address, size, prot, args.set_maximum != 0) {
             return err.as_kern_return();
         }
         hal.flush_tlb(args.address.as_u64(), size / PAGE_SIZE);
@@ -121,7 +108,7 @@ pub fn _kernelrpc_mach_vm_protect_trap(
 }
 
 pub fn _kernelrpc_mach_vm_map_trap(
-    hal: &impl HalProvider,
+    _hal: &impl HalProvider,
     args: ARG__kernelrpc_mach_vm_map_trap,
 ) -> kern_return_t {
     macro_rules! set_prot {
@@ -132,6 +119,11 @@ pub fn _kernelrpc_mach_vm_map_trap(
         };
     }
 
+    /* check output address */
+    if args.address.is_null() {
+        return KERN_INVALID_ARGUMENT;
+    }
+
     /* make a copy of the desired protection */
     let mut prot = Protection::NONE;
     let mut map_protection = args.cur_protection;
@@ -139,13 +131,6 @@ pub fn _kernelrpc_mach_vm_map_trap(
     /* never map as executable at host side when targeting self */
     if args.target == *TASK_SELF {
         map_protection &= !VM_PROT_EXECUTE;
-    }
-
-    /* check for fixed address mappings */
-    if args.flags & VM_FLAGS_ANYWHERE == 0 {
-        let addr = unsafe { Uintptr::from(*args.address) };
-        Vm::unmap(addr, args.size as usize);
-        PageTable::unmap(addr, args.size as usize).expect("cannot unmap fixed range");
     }
 
     /* forward the syscall */
@@ -175,13 +160,24 @@ pub fn _kernelrpc_mach_vm_map_trap(
     set_prot!(prot, VM_PROT_WRITE, WRITE);
     set_prot!(prot, VM_PROT_EXECUTE, EXEC);
 
-    /* get the map address & size */
-    let size = align_to_page(args.size as usize);
-    let addr = unsafe { Uintptr::from(*args.address) };
+    /* insert into page table */
+    let ret = unsafe {
+        VmMap::map(
+            VmKind::Regular,
+            Uintptr::from(*args.address),
+            align_to_page(args.size as usize),
+            prot,
+            Protection::all(),
+        )
+    };
 
-    /* insert into page table, map to guest address space, then flush TLB */
-    PageTable::map(addr, addr, size, prot, Protection::all());
-    hal.flush_tlb(addr.as_u64(), size / PAGE_SIZE);
-    Vm::map(addr, size, prot);
-    KERN_SUCCESS
+    /* unmap the memory on page table failure */
+    if let Err(err) = ret {
+        unsafe {
+            mach_vm_deallocate(args.target, *args.address, args.size);
+            err.as_kern_return()
+        }
+    } else {
+        KERN_SUCCESS
+    }
 }

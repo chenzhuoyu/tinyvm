@@ -1,5 +1,6 @@
 pub mod cpu;
 pub mod disasm;
+pub mod errors;
 pub mod ffi;
 pub mod paging;
 pub mod regs;
@@ -8,18 +9,18 @@ pub mod virtos;
 pub mod vm;
 
 use cpu::Cpu;
-use paging::PageTable;
 use vm::Vm;
 
 use crate::{
     Unit,
+    aarch64::virtos::mem::{VmKind, VmMap},
     image::Image,
-    mem::{Memory, Protection},
+    mem::Protection,
     utils::ptr::Uintptr,
 };
 
 const MAX_DYLD_ARGS: usize = 128;
-const INIT_STACK_SIZE: usize = 1048576;
+const MAIN_STACK_SIZE: usize = 1048576;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -31,7 +32,7 @@ struct KernelArgs {
 
 const KARGS_SIZE: usize = std::mem::size_of::<KernelArgs>();
 const SZBUF_SIZE: usize = paging::PAGE_SIZE - KARGS_SIZE - 8;
-const ZEROS_SIZE: usize = INIT_STACK_SIZE - paging::PAGE_SIZE;
+const ZEROS_SIZE: usize = MAIN_STACK_SIZE - paging::PAGE_SIZE;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -99,14 +100,7 @@ impl FrameBuilder<'_> {
 
 #[inline]
 fn on_load(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
-    virtos::mem::protect(addr, size, prot).unwrap_or_else(|err| {
-        panic!(
-            "cannot protect memory {addr:p}-{end:p}: {err}",
-            end = addr + size,
-        )
-    });
-    PageTable::map(addr, addr, size, prot, max_prot);
-    Vm::protect(addr, size, prot);
+    VmMap::insert(VmKind::Regular, addr, size, prot, max_prot);
 }
 
 pub fn vm_exec() -> Unit {
@@ -115,14 +109,14 @@ pub fn vm_exec() -> Unit {
     virtos::init();
 
     /* create the stack */
-    let stack = Memory::map(INIT_STACK_SIZE, Protection::RW);
+    let stack = Vm::alloc(MAIN_STACK_SIZE);
     let frame = stack.as_mut::<InitStackFrame>();
 
-    /* add the stack into page table */
-    PageTable::map(
+    /* insert the stack range into page table */
+    VmMap::insert(
+        VmKind::Regular,
         stack,
-        stack,
-        INIT_STACK_SIZE,
+        MAIN_STACK_SIZE,
         Protection::RW,
         Protection::RW,
     );

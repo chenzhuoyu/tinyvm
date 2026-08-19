@@ -6,16 +6,16 @@ use std::{
 
 use parking_lot::Mutex;
 
-use super::{
-    HalProvider, faults, mem,
-    mmio::{self, MmioHandler, MmioKind, MmioRequest, MmioResponse},
-    tlb::TlbProvider,
-};
 use crate::{
     aarch64::{
         disasm::disasm,
-        paging::{PAGE_SIZE, PageTable},
-        vm::Vm,
+        paging::PAGE_SIZE,
+        virtos::{
+            HalProvider, faults,
+            mem::{VmKind, VmMap},
+            mmio::{MmioHandler, MmioKind, MmioRequest, MmioResponse},
+            tlb::TlbProvider,
+        },
     },
     mem::Protection,
     utils::{path::is_real_file, ptr::Uintptr, size::align_to_page},
@@ -49,9 +49,9 @@ impl Drop for FileMap {
 
 impl MmioHandler for FileMap {
     fn handle(&self, pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
-        let prot = PageTable::lookup(req.addr);
+        let prot = VmMap::lookup(req.addr);
         let mut file = self.file.lock();
-        faults::fetch_page(pc, req.addr, self.base, &mut *file, Some(prot), self.offset);
+        faults::fetch_page(pc, req.addr, self.base, prot, &mut *file, self.offset);
         MmioResponse::Retry
     }
 }
@@ -120,14 +120,21 @@ fn map_regular(
             mem => Uintptr::from(mem),
         }
     };
-    Vm::map(addr, size, prot);
-    Ok(addr)
+    if let Err(err) = VmMap::map(VmKind::Regular, addr, size, prot, Protection::all()) {
+        unsafe {
+            libc::munmap(addr.as_ptr(), size);
+            Err(err)
+        }
+    } else {
+        Ok(addr)
+    }
 }
 
 fn map_from_file(
     addr: Uintptr,
     size: usize,
     flags: i32,
+    prot: Protection,
     fd: i32,
     offset: libc::off_t,
 ) -> IoResult<Uintptr> {
@@ -147,8 +154,21 @@ fn map_from_file(
     if addr.as_ptr() == libc::MAP_FAILED {
         return Err(IoError::last_os_error());
     }
-    mmio::map(addr, size, FileMap::new(addr, fd, flags, offset));
-    Ok(addr)
+    let ret = VmMap::map(
+        FileMap::new(addr, fd, flags, offset),
+        addr,
+        size,
+        prot,
+        Protection::all(),
+    );
+    if let Err(err) = ret {
+        unsafe {
+            libc::munmap(addr.as_ptr(), size);
+            Err(err)
+        }
+    } else {
+        Ok(addr)
+    }
 }
 
 fn map_from_object(
@@ -172,8 +192,21 @@ fn map_from_object(
     if addr.as_ptr() == libc::MAP_FAILED {
         return Err(IoError::last_os_error());
     }
-    mmio::map(addr, size, ObjectMap::map(addr, size));
-    Ok(addr)
+    let ret = VmMap::map(
+        ObjectMap::map(addr, size),
+        addr,
+        size,
+        prot,
+        Protection::all(),
+    );
+    if let Err(err) = ret {
+        unsafe {
+            libc::munmap(addr.as_ptr(), size);
+            Err(err)
+        }
+    } else {
+        Ok(addr)
+    }
 }
 
 pub fn msync(_hal: &impl HalProvider, addr: Uintptr, len: usize, flags: i32) -> IoResult<()> {
@@ -185,11 +218,9 @@ pub fn munmap(hal: &impl HalProvider, addr: Uintptr, len: usize) -> IoResult<()>
     let size = align_to_page(len);
     let num_pages = size / PAGE_SIZE;
 
-    /* remove from page table and such */
-    PageTable::unmap(addr, len)?;
+    /* remove from page table, and flush TLB */
+    VmMap::unmap(addr, len)?;
     hal.flush_tlb(base, num_pages);
-    mmio::unmap(addr, size);
-    Vm::unmap(addr, size);
 
     /* actually remove from host address space */
     if unsafe { libc::munmap(addr.as_ptr(), len) } != 0 {
@@ -210,15 +241,13 @@ pub fn mprotect(hal: &impl HalProvider, addr: Uintptr, len: usize, raw_prot: i32
     };
 
     /* modify the page table, then actually modify the host address space */
-    PageTable::protect(addr, size, prot, false)?;
+    VmMap::protect(addr, size, prot, false)?;
     hal.flush_tlb(base, num_pages);
-    mmio::protect(addr, size, prot)?;
-    mem::protect(addr, size, prot)?;
     Ok(())
 }
 
 pub fn mmap(
-    hal: &impl HalProvider,
+    _hal: &impl HalProvider,
     addr: Uintptr,
     len: usize,
     prot: i32,
@@ -236,20 +265,15 @@ pub fn mmap(
     let Some(prot) = Protection::from_bits(prot as u64) else {
         return Err(IoError::from_raw_os_error(libc::EINVAL));
     };
-    let addr = {
-        if flags & libc::MAP_ANON != 0 {
-            map_regular(addr, size, prot, flags, fd)
-        } else if fd < 0 {
-            Err(IoError::from_raw_os_error(libc::EINVAL))
-        } else if is_real_file(fd) {
-            map_from_file(addr, size, flags, fd, offset)
-        } else {
-            map_from_object(addr, size, flags, prot, fd, offset)
-        }
-    }?;
-    PageTable::map(addr, addr, size, prot, Protection::all());
-    hal.flush_tlb(addr.as_u64(), size / PAGE_SIZE);
-    Ok(addr)
+    if flags & libc::MAP_ANON != 0 {
+        map_regular(addr, size, prot, flags, fd)
+    } else if fd < 0 {
+        Err(IoError::from_raw_os_error(libc::EINVAL))
+    } else if is_real_file(fd) {
+        map_from_file(addr, size, flags, prot, fd, offset)
+    } else {
+        map_from_object(addr, size, flags, prot, fd, offset)
+    }
 }
 
 pub fn msync_nocancel(

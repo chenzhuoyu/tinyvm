@@ -1,13 +1,12 @@
 use std::{
-    borrow::Cow,
-    ffi::{CString, OsStr},
+    ffi::OsStr,
     fmt::{Debug, Formatter, Result as FmtResult},
     fs::File,
     io::Read,
     mem::MaybeUninit,
-    os::unix::{ffi::OsStrExt, fs::MetadataExt},
+    os::unix::ffi::OsStrExt,
     path::Path,
-    sync::{LazyLock, OnceLock},
+    sync::OnceLock,
 };
 
 use anyhow::{anyhow, ensure};
@@ -28,29 +27,11 @@ use crate::{
         io::{MappedFile, MemoryIo, ValueExt},
         path::LibPathNormalizeExt,
         ptr::Uintptr,
-        str::Sz,
     },
 };
 
 type LoadFn = Box<dyn FnMut(Uintptr, usize, Protection, Protection) + Send>;
 type LoadHandler = Option<LoadFn>;
-
-#[repr(C)]
-#[derive(Debug)]
-struct DyldImageInfo {
-    addr: Uintptr,
-    path: Sz,
-    time: i64,
-}
-
-static LLDB_IMAGE_NOTIFIER: LazyLock<
-    Option<unsafe extern "C" fn(mode: u32, count: usize, info: *const DyldImageInfo)>,
-> = LazyLock::new(|| unsafe {
-    std::mem::transmute(libc::dlsym(
-        libc::dlopen(c"/usr/lib/dyld".as_ptr(), libc::RTLD_LAZY),
-        c"lldb_image_notifier".as_ptr(),
-    ))
-});
 
 pub struct Image {
     pub data: Memory,
@@ -58,7 +39,7 @@ pub struct Image {
 }
 
 static DYLD: OnceLock<Image> = OnceLock::new();
-static LDFN: Mutex<LoadHandler> = Mutex::new(None);
+static SEGLDR: Mutex<LoadHandler> = Mutex::new(None);
 
 impl Image {
     const CPU_TYPE: u32 = CPU_TYPE_ARM64;
@@ -111,9 +92,11 @@ impl Image {
         Err(anyhow!("cannot find valid architecture in fat binary"))
     }
 
-    fn notify_load_handler(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
-        if let Some(handler) = LDFN.lock().as_deref_mut() {
+    fn load_segment(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
+        if let Some(handler) = SEGLDR.lock().as_deref_mut() {
             handler(addr, size, prot, max_prot);
+        } else {
+            panic!("missing segment load handler")
         }
     }
 }
@@ -123,7 +106,7 @@ impl Image {
     where
         F: FnMut(Uintptr, usize, Protection, Protection) + Send + 'static,
     {
-        let mut ldfn = LDFN.lock();
+        let mut ldfn = SEGLDR.lock();
         assert!(ldfn.is_none(), "load handler was already set");
         *ldfn = Some(Box::new(f));
     }
@@ -205,7 +188,7 @@ impl Image {
         }
 
         /* map the image, and calculate ASLR slide */
-        let image = Memory::alloc((max_addr - min_addr) as usize, Protection::RW);
+        let image = Memory::alloc((max_addr - min_addr) as usize);
         let slide = image.addr().addr() - (min_addr as usize);
 
         /* load the segments */
@@ -233,36 +216,14 @@ impl Image {
             );
         }
 
-        /* set the segments with correct protection */
+        /* handle loading of each segments */
         for &seg in &segments {
-            let Some(prot) = Protection::from_bits(seg.initprot.value() as u64) else {
-                return Err(anyhow!("invalid initprot: 0x{:x}", seg.initprot.value()));
-            };
-            let Some(max_prot) = Protection::from_bits(seg.maxprot.value() as u64) else {
-                return Err(anyhow!("invalid initprot: 0x{:x}", seg.maxprot.value()));
-            };
-            let size = seg.vmsize.usize();
-            let addr = seg.vmaddr.usize() + slide;
-            image.protect(addr - image.addr().addr(), size, prot);
-            Self::notify_load_handler(addr.into(), size, prot, max_prot);
-        }
-
-        /* notify the debugger, if present */
-        if let Some(lldb_image_notifier) = *LLDB_IMAGE_NOTIFIER {
-            let name = {
-                match CString::new(path.as_os_str().as_bytes()) {
-                    Ok(str) => Cow::Owned(str),
-                    Err(..) => Cow::Borrowed(c"(???)"),
-                }
-            };
-            let info = DyldImageInfo {
-                addr: image.addr(),
-                path: Sz::from(name.as_ptr()),
-                time: path.metadata().map_or(0, |m| m.mtime()),
-            };
-            unsafe {
-                lldb_image_notifier(0, 1, &raw const info);
-            }
+            Self::load_segment(
+                Uintptr::from(seg.vmaddr.usize() + slide),
+                seg.vmsize.usize(),
+                Protection::from_bits_retain(seg.initprot.value() as u64),
+                Protection::from_bits_retain(seg.maxprot.value() as u64),
+            );
         }
 
         /* construct the image */

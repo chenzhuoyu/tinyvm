@@ -1,6 +1,5 @@
 use std::{
     fmt::{Debug, Formatter, Result as FmtResult},
-    mem::ManuallyDrop,
     ops::{Deref, DerefMut},
 };
 
@@ -8,10 +7,7 @@ use ffi::{HV_MEMORY_EXEC, HV_MEMORY_READ, HV_MEMORY_WRITE};
 
 #[cfg(target_arch = "aarch64")]
 use crate::aarch64::{ffi, vm::Vm};
-use crate::utils::{
-    ptr::Uintptr,
-    size::{align_to_page, is_page_aligned},
-};
+use crate::utils::{ptr::Uintptr, size::align_to_page};
 #[cfg(target_arch = "x86_64")]
 use crate::x86_64::ffi;
 
@@ -48,41 +44,15 @@ impl Debug for Protection {
     }
 }
 
-struct Pages {
-    addr: Uintptr,
-    size: usize,
-}
-
-impl Pages {
-    #[inline]
-    fn alloc(size: usize) -> Self {
-        assert!(is_page_aligned(size));
-        let addr = Vm::alloc(size);
-        Self { addr, size }
-    }
-}
-
-impl Drop for Pages {
-    fn drop(&mut self) {
-        Vm::dealloc(self.addr, self.size);
-    }
-}
-
 pub struct Memory {
     addr: Uintptr,
     size: usize,
 }
 
 impl Memory {
-    pub fn map(size: usize, prot: Protection) -> Uintptr {
-        let ret = Pages::alloc(size);
-        Vm::map(ret.addr, size, prot);
-        ManuallyDrop::new(ret).addr
-    }
-
-    pub fn alloc(size: usize, prot: Protection) -> Self {
+    pub fn alloc(size: usize) -> Self {
         let size = align_to_page(size);
-        let addr = Self::map(size, prot);
+        let addr = Vm::alloc(size);
         Self { addr, size }
     }
 }
@@ -99,16 +69,8 @@ impl Memory {
     }
 }
 
-impl Memory {
-    pub fn protect(&self, offs: usize, size: usize, prot: Protection) {
-        assert!(is_page_aligned(size) && is_page_aligned(offs) && offs + size <= self.size);
-        Vm::protect(self.addr + offs, size, prot);
-    }
-}
-
 impl Drop for Memory {
     fn drop(&mut self) {
-        Vm::unmap(self.addr, self.size);
         Vm::dealloc(self.addr, self.size);
     }
 }

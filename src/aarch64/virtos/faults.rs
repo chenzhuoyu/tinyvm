@@ -1,8 +1,7 @@
 use std::io::{ErrorKind, Read, Result as IoResult, Seek, SeekFrom};
 
-use super::mem;
 use crate::{
-    aarch64::{disasm::disasm, paging::PAGE_SIZE, vm::Vm},
+    aarch64::{disasm::disasm, paging::PAGE_SIZE, virtos::mem::VmMap, vm::Vm},
     mem::Protection,
     utils::ptr::Uintptr,
 };
@@ -10,12 +9,12 @@ use crate::{
 fn do_fetch_page<F: Read + Seek>(
     addr: Uintptr,
     base: Uintptr,
+    prot: Protection,
     file: &mut F,
-    prot: Option<Protection>,
     offset: usize,
 ) -> IoResult<()> {
-    let offs = (addr - base) & !(PAGE_SIZE - 1);
-    let base = base + offs;
+    let dist = (addr - base) & !(PAGE_SIZE - 1);
+    let base = base + dist;
 
     /* sanity check the calculated address */
     debug_assert!(
@@ -23,13 +22,9 @@ fn do_fetch_page<F: Read + Seek>(
         "calculated page address {base:p} does not contain the requested address {addr:p}",
     );
 
-    /* map pages into VM */
-    Vm::map(base, PAGE_SIZE, Protection::WRITE);
-    mem::protect(base, PAGE_SIZE, Protection::WRITE)?;
-
     /* seek to the specified location */
     let mut page = {
-        file.seek(SeekFrom::Start((offset + offs) as u64))?;
+        file.seek(SeekFrom::Start((offset + dist) as u64))?;
         base.as_mut::<[u8; PAGE_SIZE]>().as_mut_slice()
     };
 
@@ -43,14 +38,10 @@ fn do_fetch_page<F: Read + Seek>(
         }
     }
 
-    /* get the protection bits */
-    let Some(prot) = prot else {
-        return Ok(());
-    };
-
-    /* finalize the protection on this page */
-    mem::protect(base, PAGE_SIZE, prot)?;
-    Vm::protect(base, PAGE_SIZE, prot);
+    // FIXME: it may need page table invalidations here
+    /* map the loaded page into guest space */
+    VmMap::protect(base, PAGE_SIZE, prot, false)?;
+    Vm::map(base, PAGE_SIZE, prot);
     Ok(())
 }
 
@@ -58,11 +49,11 @@ pub fn fetch_page<F: Read + Seek>(
     pc: Uintptr,
     addr: Uintptr,
     base: Uintptr,
+    prot: Protection,
     file: &mut F,
-    prot: Option<Protection>,
     offset: usize,
 ) {
-    do_fetch_page(addr, base, file, prot, offset).unwrap_or_else(|err| {
+    do_fetch_page(addr, base, prot, file, offset).unwrap_or_else(|err| {
         panic!(
             "cannot fetch page at {addr:p}\nInstruction:\n  {insn}\nError:\n  {err}",
             insn = disasm(pc)

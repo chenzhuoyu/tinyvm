@@ -1,16 +1,39 @@
 .global _virtos_end
 .global _virtos_start
+.balign 4096
+
+.macro nop_irq imm, name
 .balign 128
+.L_\name:
+    brk     \imm
+    b       .L_\name
+.endmacro
 
 _virtos_start:
-.set idx, 0
-.rept 16
+    nop_irq 0x80, el1t_sync
+    nop_irq 0x81, el1t_irq
+    nop_irq 0x82, el1t_fiq
+    nop_irq 0x83, el1t_serror
+
+    nop_irq 0x90, el1h_sync
+    nop_irq 0x91, el1h_irq
+    nop_irq 0x92, el1h_fiq
+    nop_irq 0x93, el1h_serror
+
 .balign 128
-    hvc     #idx
+.L_el0_64_sync:
+    hvc     #0xa0
     b.vs    .L_flush_tlb
     eret
-.set idx, idx + 1
-.endr
+
+    nop_irq 0xa1, el0_64_irq
+    nop_irq 0xa2, el0_64_fiq
+    nop_irq 0xa3, el0_64_serror
+
+    nop_irq 0xb0, el0_32_sync
+    nop_irq 0xb1, el0_32_irq
+    nop_irq 0xb2, el0_32_fiq
+    nop_irq 0xb3, el0_32_serror
 
 .balign 128
 .L_flush_tlb:

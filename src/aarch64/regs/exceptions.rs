@@ -1,7 +1,9 @@
 use std::fmt::Debug;
 
-use super::SysReg;
-use crate::macros::{declare_friendly_enum, define_bit_field};
+use crate::{
+    aarch64::regs::SysReg,
+    macros::{declare_friendly_enum, define_bit_field},
+};
 
 const EC_UNCATEGORIZED: u64 = 0x00;
 const EC_WFX_TRAP: u64 = 0x01;

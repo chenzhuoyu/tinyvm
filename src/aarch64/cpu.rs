@@ -3,18 +3,23 @@ use std::{
     ptr::NonNull,
 };
 
-use super::{
-    disasm::disasm,
-    ffi::*,
-    paging::{MAIR_EL1_INIT, PageTable, SCTLR_EL1_INIT, TCR_EL1_INIT},
-    regs::*,
-    syscall::Syscall,
-    virtos::{
-        HalProvider, IRQ_STUBS,
-        mmio::{self, MmioKind, MmioRequest, MmioResponse},
+use crate::{
+    aarch64::{
+        disasm::disasm,
+        ffi::*,
+        paging::{MAIR_EL1_INIT, SCTLR_EL1_INIT, TCR_EL1_INIT},
+        regs::*,
+        syscall::Syscall,
+        virtos::{
+            HalProvider, IRQ_STUBS,
+            mem::VmMap,
+            mmio::{MmioKind, MmioRequest, MmioResponse},
+            tlb::TlbProvider,
+        },
     },
+    hv_call,
+    utils::ptr::Uintptr,
 };
-use crate::{hv_call, utils::ptr::Uintptr};
 
 #[derive(Clone, Copy)]
 struct VmException {
@@ -84,7 +89,7 @@ impl Cpu {
         /* setup paging */
         cpu.write_sys_reg(SysReg::TCR_EL1, TCR_EL1_INIT);
         cpu.write_sys_reg(SysReg::MAIR_EL1, MAIR_EL1_INIT);
-        cpu.write_sys_reg(SysReg::TTBR0_EL1, PageTable::base().as_u64());
+        cpu.write_sys_reg(SysReg::TTBR0_EL1, VmMap::base().as_u64());
         cpu.write_sys_reg(SysReg::SCTLR_EL1, SCTLR_EL1_INIT);
 
         /* initialize the vCPU and set it to EL0 */
@@ -93,7 +98,7 @@ impl Cpu {
         cpu.write_sys_reg(SysReg::SP_EL0, sp);
         cpu.write_sys_reg(SysReg::VBAR_EL1, IRQ_STUBS.as_u64());
         cpu.write_sys_reg(SysReg::CPACR_EL1, CPACR_FPEN);
-        // cpu.write_sys_reg(SysReg::MDSCR_EL1, MDSCR_SS);
+        cpu.write_sys_reg(SysReg::MDSCR_EL1, MDSCR_SS);
         cpu
     }
 }
@@ -119,6 +124,9 @@ impl Cpu {
             Exception::SOFTWARE_STEP => {
                 let pc = Uintptr::from(self.read_reg(Reg::PC));
                 tracing::trace!("SINGLE_STEP: {}", disasm(pc));
+                if pc.addr() == 0xffffff0200 {
+                    panic!("dead loop");
+                }
                 self.write_reg(Reg::CPSR, self.read_reg(Reg::CPSR) | PSTATE_SS);
             }
             ec => {
@@ -143,6 +151,16 @@ impl Cpu {
                 self.handle_sysreg_trap(iss);
                 self.write_sys_reg(SysReg::ELR_EL1, elr.as_u64() + 4);
             }
+            Exception::INST_ABORT => {
+                let far = Uintptr::from(self.read_sys_reg(SysReg::FAR_EL1));
+                let iss = InstAbortISS(esr.ISS() as u32);
+                self.handle_user_inst_abort(elr, iss, far);
+            }
+            Exception::DATA_ABORT => {
+                let far = Uintptr::from(self.read_sys_reg(SysReg::FAR_EL1));
+                let iss = DataAbortISS(esr.ISS() as u32);
+                self.handle_user_data_abort(elr, iss, far);
+            }
             ec => {
                 panic!(
                     "unhandled EL0 exception {ec:?}:\nInstruction:\n  {insn}\n{self:#?}",
@@ -157,7 +175,7 @@ impl Cpu {
             panic!(
                 "segmentation fault from instruction fetching: {self:#?}\nAddress:\n  \
                  {addr:p}\nInstruction:\n  {insn}",
-                insn = disasm(self.read_reg(Reg::PC))
+                insn = disasm(pc)
             );
         }
         let mut req = MmioRequest {
@@ -166,11 +184,11 @@ impl Cpu {
             size: 4,
             kind: MmioKind::Execution,
         };
-        let Some(resp) = mmio::dispatch(pc, &mut req) else {
+        let Some(resp) = VmMap::handle_mmio(pc, &mut req) else {
             panic!(
                 "unhandled page fault from instruction fetching: {self:#?}\nAddress:\n  \
                  {addr:p}\nInstruction:\n  {insn}",
-                insn = disasm(self.read_reg(Reg::PC))
+                insn = disasm(pc)
             );
         };
         assert_eq!(
@@ -191,7 +209,7 @@ impl Cpu {
         if !iss.is_translation_fault() {
             panic!(
                 "segmentation fault: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
-                insn = disasm(self.read_reg(Reg::PC))
+                insn = disasm(pc)
             );
         }
         let mut req = MmioRequest {
@@ -216,33 +234,36 @@ impl Cpu {
             }
             req.size = 1 << iss.SAS();
         }
-        let Some(resp) = mmio::dispatch(pc, &mut req) else {
+        let Some(resp) = VmMap::handle_mmio(pc, &mut req) else {
             panic!(
                 "unhandled page fault: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
-                insn = disasm(self.read_reg(Reg::PC))
+                insn = disasm(pc)
             );
         };
-        match resp {
-            MmioResponse::Retry => return,
-            MmioResponse::Advance => self.write_reg(Reg::PC, pc.as_u64() + 4),
+        if resp == MmioResponse::Retry {
+            return;
         }
-        if iss.ISV() != 0 && iss.WnR() == 0 {
-            let mut data = match (iss.SAS(), iss.SSE()) {
-                (0b00, 0b0) => req.data & (u8::MAX as u64),
-                (0b01, 0b0) => req.data & (u16::MAX as u64),
-                (0b10, 0b0) => req.data & (u32::MAX as u64),
-                (0b11, 0b0) => req.data,
-                (0b00, 0b1) => req.data as i8 as u64,
-                (0b01, 0b1) => req.data as i16 as u64,
-                (0b10, 0b1) => req.data as i32 as u64,
-                (0b11, 0b1) => req.data,
+        assert!(
+            iss.ISV() != 0,
+            "MMIO cannot make more progress without valid ISV"
+        );
+        if iss.WnR() == 0 {
+            match (iss.SAS(), iss.SSE()) {
+                (0b00, 0b0) => req.data &= u8::MAX as u64,
+                (0b01, 0b0) => req.data &= u16::MAX as u64,
+                (0b10, 0b0) => req.data &= u32::MAX as u64,
+                (0b00, 0b1) => req.data = req.data as i8 as u64,
+                (0b01, 0b1) => req.data = req.data as i16 as u64,
+                (0b10, 0b1) => req.data = req.data as i32 as u64,
+                (0b11, ..) => {}
                 _ => unreachable!(),
             };
             if iss.SF() == 0 {
-                data &= u32::MAX as u64;
+                req.data &= u32::MAX as u64;
             }
-            self.write_reg(Reg::from(iss.SRT()), data);
+            self.write_reg(Reg::from(iss.SRT()), req.data);
         }
+        self.write_reg(Reg::PC, pc.as_u64() + 4);
     }
 
     fn handle_sysreg_trap(&mut self, iss: SysRegTrapISS) {
@@ -296,6 +317,47 @@ impl Cpu {
         read_sys_reg! {
             APL_ACNTPCT_EL0 => s3_4_c15_c10_5,
             APL_ACNTVCT_EL0 => s3_4_c15_c10_6,
+        }
+    }
+
+    fn handle_user_inst_abort(&mut self, pc: Uintptr, iss: InstAbortISS, addr: Uintptr) {
+        assert!(
+            iss.is_translation_fault(),
+            "segmentation fault at EL0 from instruction fetching: {self:#?}\nAddress:\n  \
+             {addr:p}\nInstruction:\n  {insn}",
+            insn = disasm(pc)
+        );
+        if !VmMap::handle_page_fault(addr, MmioKind::Execution) {
+            panic!(
+                "bus fault at EL0 from instruction fetching: {self:#?}\nAddress:\n  \
+                 {addr:p}\nInstruction:\n  {insn}",
+                insn = disasm(pc)
+            );
+        } else {
+            self.flush_tlb(addr.as_u64(), 1);
+        }
+    }
+
+    fn handle_user_data_abort(&mut self, pc: Uintptr, iss: DataAbortISS, addr: Uintptr) {
+        assert!(
+            iss.is_translation_fault(),
+            "segmentation fault at EL0: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
+            insn = disasm(pc)
+        );
+        let kind = {
+            if iss.WnR() == 1 {
+                MmioKind::Write
+            } else {
+                MmioKind::Read
+            }
+        };
+        if !VmMap::handle_page_fault(addr, kind) {
+            panic!(
+                "bus fault at EL0: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
+                insn = disasm(pc)
+            );
+        } else {
+            self.flush_tlb(addr.as_u64(), 1);
         }
     }
 }

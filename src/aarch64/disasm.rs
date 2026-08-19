@@ -2,7 +2,6 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 
 use disarm64::{InsnOpcode, decoder::decode, format_insn::format_insn_pc};
 
-use super::paging::PageTable;
 use crate::utils::ptr::Uintptr;
 
 #[derive(Debug, Clone, Copy)]
@@ -20,19 +19,15 @@ impl Disasm {
 
 impl Display for Disasm {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        if let Ok(addr) = PageTable::translate(self.0) {
-            if let Some(ref opcode) = decode(addr.read()) {
-                let mut buf = String::with_capacity(32);
-                write!(f, "{:p}: {:08x}  ", self.0, opcode.bits())?;
-                format_insn_pc(self.0.as_u64(), &mut buf, opcode)?;
-                Self::write_insn(f, &buf)?;
-                Ok(())
-            } else {
-                let insn = addr.read::<u32>();
-                write!(f, "{:p}: {:08x}  (???)", self.0, insn)
-            }
+        if let Some(ref opcode) = decode(self.0.read()) {
+            let mut buf = String::with_capacity(32);
+            write!(f, "{:p}: {:08x}  ", self.0, opcode.bits())?;
+            format_insn_pc(self.0.as_u64(), &mut buf, opcode)?;
+            Self::write_insn(f, &buf)?;
+            Ok(())
         } else {
-            write!(f, "{:p}: ????????  (???)", self.0)
+            let insn = self.0.read::<u32>();
+            write!(f, "{:p}: {:08x}  (???)", self.0, insn)
         }
     }
 }

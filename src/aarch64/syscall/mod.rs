@@ -8,12 +8,14 @@ use bsd::BsdSyscall;
 use mach::MachTrap;
 use machdep::MachDep;
 
-use super::{
-    cpu::Cpu,
-    regs::{PSTATE_C, PSTATE_N, PSTATE_NZCV, PSTATE_V, PSTATE_Z, Reg, SysReg},
-    virtos::{self, HalProvider},
+use crate::{
+    aarch64::{
+        cpu::Cpu,
+        regs::{PSTATE_C, PSTATE_N, PSTATE_NZCV, PSTATE_V, PSTATE_Z, Reg, SysReg},
+        virtos::HalProvider,
+    },
+    utils::ptr::Uintptr,
 };
-use crate::utils::ptr::Uintptr;
 
 trait BsdResult: Copy {
     fn as_result(self) -> u64;
@@ -175,7 +177,7 @@ impl Syscall<'_> {
 impl Syscall<'_> {
     fn dispatch_bsd(&mut self, bsd: BsdSyscall) {
         mod impls {
-            pub(super) use super::virtos::{bsd_mman::*, shared_cache::*};
+            pub(super) use crate::aarch64::virtos::{bsd_mman::*, shared_cache::*};
         }
         macro_rules! handle_syscall {
             ($($name:ident $(($($field:ident),* $(,)?))?),+ $(,)?) => {
@@ -209,7 +211,7 @@ impl Syscall<'_> {
 
     fn dispatch_mach(&mut self, mach: MachTrap) {
         mod impls {
-            pub(super) use super::virtos::{mach_msg::*, mach_vm::*, task::*};
+            pub(super) use crate::aarch64::virtos::{mach_msg::*, mach_vm::*, task::*};
         }
         macro_rules! handle_mach_trap {
             ($($name:ident ($($args:ident)?)),+ $(,)?) => {

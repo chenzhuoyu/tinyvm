@@ -1,12 +1,15 @@
-use super::ffi::*;
-use crate::{hv_call, mem::Protection, utils::ptr::Uintptr};
+use crate::{aarch64::ffi::*, hv_call, mem::Protection, utils::ptr::Uintptr};
 
 pub enum Vm {}
 
 impl Vm {
     pub fn init() {
         let vcfg = unsafe { hv_vm_config_create() };
+        let mut max_ipa_bits = 0u32;
         hv_call!(hv_vm_config_set_el2_enabled(vcfg, false));
+        hv_call!(hv_vm_config_set_ipa_granule(vcfg, HV_IPA_GRANULE_16KB));
+        hv_call!(hv_vm_config_get_max_ipa_size(&raw mut max_ipa_bits));
+        hv_call!(hv_vm_config_set_ipa_size(vcfg, max_ipa_bits));
         hv_call!(hv_vm_create(vcfg));
     }
 }

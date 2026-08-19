@@ -1,14 +1,18 @@
-use super::mmio::{self, MmioKind, MmioRequest, MmioResponse};
 use crate::{
-    aarch64::paging::{PAGE_SIZE, PageTable},
+    aarch64::{
+        paging::PAGE_SIZE,
+        virtos::{
+            mem::VmMap,
+            mmio::{MmioKind, MmioRequest, MmioResponse},
+        },
+    },
     mem::Protection,
     utils::ptr::Uintptr,
 };
 
 const COMMPAGE_RO: Uintptr = Uintptr::new(0xfffff4000);
 const COMMPAGE_RW: Uintptr = Uintptr::new(0xfffffc000);
-
-const SLOT_TPRO: Uintptr = Uintptr::new(0xfffffc10c);
+const COMMPAGE_TPRO: Uintptr = Uintptr::new(0xfffffc10c);
 
 fn handle_commpage(pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
     if req.kind != MmioKind::Read {
@@ -18,7 +22,7 @@ fn handle_commpage(pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
             addr = req.addr
         );
     }
-    if req.addr == SLOT_TPRO {
+    if req.addr == COMMPAGE_TPRO {
         req.data = 0;
         return MmioResponse::Advance;
     }
@@ -33,20 +37,18 @@ fn handle_commpage(pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
 }
 
 pub(super) fn init() {
-    PageTable::map(
-        COMMPAGE_RO,
+    VmMap::insert(
+        handle_commpage,
         COMMPAGE_RO,
         PAGE_SIZE,
         Protection::READ,
         Protection::READ,
     );
-    PageTable::map(
-        COMMPAGE_RW,
+    VmMap::insert(
+        handle_commpage,
         COMMPAGE_RW,
         PAGE_SIZE,
         Protection::RW,
         Protection::RW,
     );
-    mmio::map(COMMPAGE_RO, PAGE_SIZE, handle_commpage);
-    mmio::map(COMMPAGE_RW, PAGE_SIZE, handle_commpage);
 }

@@ -9,8 +9,7 @@ use std::{
 
 use anyhow::Context;
 
-use super::ptr::Uintptr;
-use crate::Maybe;
+use crate::{Maybe, utils::ptr::Uintptr};
 
 pub trait AsUsize: Copy {
     fn as_usize(self) -> usize;

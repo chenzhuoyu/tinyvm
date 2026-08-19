@@ -6,20 +6,22 @@ use mach2::{
     },
     ndr::NDR_record_t,
     port::{MACH_PORT_NULL, mach_port_t},
-    vm::mach_vm_map,
+    vm::{mach_vm_deallocate, mach_vm_map},
     vm_inherit::VM_INHERIT_DEFAULT,
     vm_prot::{VM_PROT_ALL, VM_PROT_ALLEXEC, VM_PROT_EXECUTE, VM_PROT_READ, VM_PROT_WRITE},
-    vm_statistics::VM_FLAGS_ANYWHERE,
 };
 
-use super::{HalProvider, task::TASK_SELF, tlb::TlbProvider};
 use crate::{
     aarch64::{
-        paging::{PAGE_SIZE, PageTable},
+        errors::AsKernReturn,
         syscall::mach::{
             ARG_mach_msg_overwrite_trap, ARG_mach_msg_trap, ARG_mach_msg2_trap, mach_msg_option64_t,
         },
-        vm::Vm,
+        virtos::{
+            HalProvider,
+            mem::{VmKind, VmMap},
+            task::TASK_SELF,
+        },
     },
     macros::define_bit_field,
     mem::Protection,
@@ -199,7 +201,7 @@ fn parse_message<T: Copy>(args: &ARG_mach_msg2_trap) -> Option<(T, Responder)> {
 }
 
 fn handle_mach_vm_map(
-    hal: &impl HalProvider,
+    _hal: &impl HalProvider,
     req: mach_vm_map_request,
     reply: Responder,
 ) -> kern_return_t {
@@ -221,17 +223,6 @@ fn handle_mach_vm_map(
     let mut cur_prot = Protection::NONE;
     let mut max_prot = Protection::NONE;
 
-    /* check if it's an object map */
-    if req.object.name != 0 {
-        unimplemented!("mach_vm_map() message with non-zero port");
-    }
-
-    /* check for fixed address mappings */
-    if req.flags & VM_FLAGS_ANYWHERE == 0 {
-        Vm::unmap(req.address, req.size as usize);
-        PageTable::unmap(req.address, req.size as usize).expect("cannot unmap fixed range");
-    }
-
     /* convert current protection flags */
     set_prot!(cur_prot, VM_PROT_READ, READ);
     set_prot!(cur_prot, VM_PROT_WRITE, WRITE);
@@ -242,8 +233,13 @@ fn handle_mach_vm_map(
     set_prot!(max_prot, VM_PROT_WRITE, WRITE);
     set_prot!(max_prot, VM_PROT_EXECUTE, EXEC);
 
+    /* check if it's an object map */
+    if req.object.name != 0 {
+        unimplemented!("mach_vm_map() message with non-zero port");
+    }
+
     /* perform the actual memory map */
-    let result = unsafe {
+    let mut result = unsafe {
         mach_vm_map(
             *TASK_SELF,
             &raw mut addr,
@@ -259,27 +255,35 @@ fn handle_mach_vm_map(
         )
     };
 
+    /* insert into page table, if allocation was successful */
+    if result == KERN_SUCCESS {
+        let ret = VmMap::map(
+            VmKind::Regular,
+            Uintptr::from(addr),
+            align_to_page(req.size as usize),
+            cur_prot,
+            max_prot,
+        );
+        if let Err(err) = ret {
+            unsafe {
+                result = err.as_kern_return();
+                mach_vm_deallocate(*TASK_SELF, addr, req.size);
+            }
+        }
+    }
+
     /* check if the syscall is successful */
     if result != KERN_SUCCESS {
         reply.reply(mig_reply_error_t::new(req.head.msgh_id, reply.port, result));
         return KERN_SUCCESS;
     }
 
-    /* get the map address & size */
-    let size = align_to_page(req.size as usize);
-    let addr = Uintptr::from(addr);
-
     /* construct the response */
-    reply.reply(mach_vm_allocate_or_map_reply::new(
-        req.head.msgh_id,
-        reply.port,
-        addr,
-    ));
+    let addr = Uintptr::from(addr);
+    let resp = mach_vm_allocate_or_map_reply::new(req.head.msgh_id, reply.port, addr);
 
-    /* insert into page table, map to guest address space, then flush TLB */
-    PageTable::map(addr, addr, size, cur_prot, max_prot);
-    hal.flush_tlb(addr.as_u64(), size / PAGE_SIZE);
-    Vm::map(addr, size, cur_prot);
+    /* send the response */
+    reply.reply(resp);
     KERN_SUCCESS
 }
 

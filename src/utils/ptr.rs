@@ -86,7 +86,7 @@ impl Uintptr {
 }
 
 macro_rules! impl_operator {
-    ($($op:ident : $ty:ty => $rty:ty $([ $suffix:ident ])?),* $(,)?) => {
+    ($($op:ident : $ty:ty => $rty:ty [$($action:tt)*]),* $(,)?) => {
         paste::paste! {
             $(
                 impl $op<$ty> for Uintptr {
@@ -94,7 +94,7 @@ macro_rules! impl_operator {
 
                     #[inline(always)]
                     fn [< $op:lower >](self, rhs: $ty) -> Self {
-                        Self(self.0.[< wrapping_ $op:lower $($suffix)? >](rhs as $rty))
+                        Self(self.0 $($action)* (rhs as $rty))
                     }
                 }
 
@@ -150,18 +150,18 @@ impl<T> From<*const T> for Uintptr {
 }
 
 impl_operator! {
-    Add : u32   => usize,
-    Add : u64   => usize,
-    Add : usize => usize,
-    Add : i32   => isize [ _signed ],
-    Add : i64   => isize [ _signed ],
-    Add : isize => isize [ _signed ],
-    Sub : u32   => usize,
-    Sub : u64   => usize,
-    Sub : usize => usize,
-    Sub : i32   => isize [ _signed ],
-    Sub : i64   => isize [ _signed ],
-    Sub : isize => isize [ _signed ],
+    Add : u32   => usize [ .wrapping_add ] ,
+    Add : u64   => usize [ .wrapping_add ] ,
+    Add : usize => usize [ .wrapping_add ] ,
+    Add : i32   => isize [ .wrapping_add_signed ],
+    Add : i64   => isize [ .wrapping_add_signed ],
+    Add : isize => isize [ .wrapping_add_signed ],
+    Sub : u32   => usize [ .wrapping_sub ],
+    Sub : u64   => usize [ .wrapping_sub ],
+    Sub : usize => usize [ .wrapping_sub ],
+    Sub : i32   => isize [ .wrapping_sub_signed ],
+    Sub : i64   => isize [ .wrapping_sub_signed ],
+    Sub : isize => isize [ .wrapping_sub_signed ],
 }
 
 impl Sub for Uintptr {

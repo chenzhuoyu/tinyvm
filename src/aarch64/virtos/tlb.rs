@@ -1,5 +1,7 @@
-use super::HalProvider;
-use crate::aarch64::regs::{PSTATE_V, Reg};
+use crate::aarch64::{
+    regs::{PSTATE_V, Reg},
+    virtos::HalProvider,
+};
 
 pub trait TlbProvider {
     fn flush_tlb(&self, base: u64, num_pages: usize);
