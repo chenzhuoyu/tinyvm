@@ -8,13 +8,13 @@ use parking_lot::Mutex;
 
 use crate::{
     aarch64::{
+        cpu::Cpu,
         disasm::disasm,
         paging::PAGE_SIZE,
         virtos::{
-            HalProvider, faults,
+            faults,
             mem::{VmKind, VmMap},
             mmio::{MmioHandler, MmioKind, MmioRequest, MmioResponse},
-            tlb::TlbProvider,
         },
     },
     mem::Protection,
@@ -209,18 +209,13 @@ fn map_from_object(
     }
 }
 
-pub fn msync(_hal: &impl HalProvider, addr: Uintptr, len: usize, flags: i32) -> IoResult<()> {
+pub fn msync(_cpu: &Cpu, addr: Uintptr, len: usize, flags: i32) -> IoResult<()> {
     todo!("msync(): addr={addr:p} len={len} flags=0x{flags:x}");
 }
 
-pub fn munmap(hal: &impl HalProvider, addr: Uintptr, len: usize) -> IoResult<()> {
-    let base = addr.as_u64();
-    let size = align_to_page(len);
-    let num_pages = size / PAGE_SIZE;
-
-    /* remove from page table, and flush TLB */
+pub fn munmap(cpu: &Cpu, addr: Uintptr, len: usize) -> IoResult<()> {
     VmMap::unmap(addr, len)?;
-    hal.flush_tlb(base, num_pages);
+    cpu.flush_tlb(addr, len.div_ceil(PAGE_SIZE));
 
     /* actually remove from host address space */
     if unsafe { libc::munmap(addr.as_ptr(), len) } != 0 {
@@ -230,24 +225,16 @@ pub fn munmap(hal: &impl HalProvider, addr: Uintptr, len: usize) -> IoResult<()>
     }
 }
 
-pub fn mprotect(hal: &impl HalProvider, addr: Uintptr, len: usize, raw_prot: i32) -> IoResult<()> {
-    let base = addr.as_u64();
-    let size = align_to_page(len);
-    let num_pages = size / PAGE_SIZE;
-
-    /* parse protection bits */
-    let Some(prot) = Protection::from_bits(raw_prot as u64) else {
-        return Err(IoError::from_raw_os_error(libc::EINVAL));
-    };
-
-    /* modify the page table, then actually modify the host address space */
-    VmMap::protect(addr, size, prot, false)?;
-    hal.flush_tlb(base, num_pages);
-    Ok(())
+pub fn mprotect(cpu: &Cpu, addr: Uintptr, len: usize, raw_prot: i32) -> IoResult<()> {
+    if let Some(prot) = Protection::from_bits(raw_prot as u64) {
+        VmMap::protect(cpu, addr, len, prot, false)
+    } else {
+        Err(IoError::from_raw_os_error(libc::EINVAL))
+    }
 }
 
 pub fn mmap(
-    _hal: &impl HalProvider,
+    _cpu: &Cpu,
     addr: Uintptr,
     len: usize,
     prot: i32,
@@ -276,11 +263,6 @@ pub fn mmap(
     }
 }
 
-pub fn msync_nocancel(
-    _hal: &impl HalProvider,
-    addr: Uintptr,
-    len: usize,
-    flags: i32,
-) -> IoResult<()> {
+pub fn msync_nocancel(_cpu: &Cpu, addr: Uintptr, len: usize, flags: i32) -> IoResult<()> {
     todo!("msync_nocancel(): addr={addr:p} len={len} flags=0x{flags:x}");
 }

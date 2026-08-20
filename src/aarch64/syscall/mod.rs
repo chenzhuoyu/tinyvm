@@ -12,7 +12,6 @@ use crate::{
     aarch64::{
         cpu::Cpu,
         regs::{PSTATE_C, PSTATE_N, PSTATE_NZCV, PSTATE_V, PSTATE_Z, Reg, SysReg},
-        virtos::HalProvider,
     },
     utils::ptr::Uintptr,
 };

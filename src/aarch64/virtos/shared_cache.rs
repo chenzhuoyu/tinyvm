@@ -15,15 +15,15 @@ use smallvec::SmallVec;
 
 use crate::{
     aarch64::{
+        cpu::Cpu,
         disasm::disasm,
         paging::PAGE_SIZE,
         syscall::bsd::{shared_file_np, shared_mapping_np},
         virtos::{
-            HalProvider, faults,
+            faults,
             mem::{VmKind, VmMap},
-            mmio::{self, MmioHandler, MmioRequest, MmioResponse},
+            mmio::{MmioHandler, MmioRequest, MmioResponse},
             pac::SigningKey,
-            tlb::TlbProvider,
         },
         vm::Vm,
     },
@@ -261,8 +261,9 @@ static SHARED_REGION: RwLock<SharedRegionData> = {
 };
 
 impl SharedRegion {
-    fn protect(&self, addr: Uintptr) -> IoResult<()> {
+    fn protect(&self, cpu: &Cpu, addr: Uintptr) -> IoResult<()> {
         VmMap::protect(
+            cpu,
             CacheSlider::page(addr),
             PAGE_SIZE,
             VmMap::lookup(addr),
@@ -306,7 +307,7 @@ impl MmioHandler for SharedRegion {
         );
         if let Some(slider) = map.slider.as_ref() {
             slider.slide(pc, CacheSlider::page(req.addr), base);
-            self.protect(req.addr).expect("cannot protect memory");
+            // self.protect(cpu, req.addr).expect("cannot protect memory");
         }
         MmioResponse::Retry
     }
@@ -317,7 +318,7 @@ fn mkslice<T>(data: *const T, len: u32) -> &'static [T] {
     unsafe { std::slice::from_raw_parts(data, len as usize) }
 }
 
-pub fn shared_region_check_np(_hal: &impl HalProvider, addr: *mut u64) -> IoResult<()> {
+pub fn shared_region_check_np(_cpu: &Cpu, addr: *mut u64) -> IoResult<()> {
     if addr.is_null() {
         SHARED_REGION.write().remove();
         Ok(())
@@ -333,7 +334,7 @@ pub fn shared_region_check_np(_hal: &impl HalProvider, addr: *mut u64) -> IoResu
 }
 
 pub fn shared_region_map_and_slide_2_np(
-    hal: &impl HalProvider,
+    cpu: &Cpu,
     files_count: u32,
     files: *mut shared_file_np,
     mappings_count: u32,
@@ -508,7 +509,7 @@ pub fn shared_region_map_and_slide_2_np(
 }
 
 pub fn map_with_linking_np(
-    _hal: &impl HalProvider,
+    _cpu: &Cpu,
     _regions: *mut libc::c_void,
     _region_count: u32,
     _link_info: *mut libc::c_void,

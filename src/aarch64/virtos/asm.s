@@ -22,6 +22,7 @@ _virtos_start:
 
 .balign 128
 .L_el0_64_sync:
+    cmn     xzr, xzr
     hvc     #0xa0
     b.vs    .L_flush_tlb
     eret
@@ -37,7 +38,11 @@ _virtos_start:
 
 .balign 128
 .L_flush_tlb:
-    dsb     ishst
+    dsb     ish
+    sttr    x16, [sp, #-16]
+    sttr    x17, [sp, #-8]
+    ldtr    x16, [sp]
+    ldtr    x17, [sp, #8]
     cmp     x17, #0x200000
     b.ls    .L_flush_16
     tlbi    vmalle1is
@@ -56,6 +61,8 @@ _virtos_start:
 .endmacro
 
 .L_flush_16:
+    sttr    x10, [sp, #-32]
+    sttr    x11, [sp, #-24]
     tlbi_rv 0xffff, 3, 23, .L_flush_11
 
 .L_flush_11:
@@ -68,10 +75,14 @@ _virtos_start:
     tlbi_rv 1, 0, 38, .L_flush_1
 
 .L_flush_1:
+    ldtr    x10, [sp, #-32]
+    ldtr    x11, [sp, #-24]
     lsr     x16, x16, #12
     tlbi    vae1is, x16
 
 .L_done:
+    ldtr    x16, [sp, #-16]
+    ldtr    x17, [sp, #-8]
     dsb     ish
     isb
     eret

@@ -8,6 +8,7 @@ use mach2::{
 
 use crate::{
     aarch64::{
+        cpu::Cpu,
         errors::AsKernReturn,
         paging::PAGE_SIZE,
         syscall::mach::{
@@ -15,10 +16,8 @@ use crate::{
             ARG__kernelrpc_mach_vm_map_trap, ARG__kernelrpc_mach_vm_protect_trap,
         },
         virtos::{
-            HalProvider,
             mem::{VmKind, VmMap},
             task::TASK_SELF,
-            tlb::TlbProvider,
         },
     },
     mem::Protection,
@@ -26,7 +25,7 @@ use crate::{
 };
 
 pub fn _kernelrpc_mach_vm_allocate_trap(
-    _hal: &impl HalProvider,
+    _cpu: &Cpu,
     args: ARG__kernelrpc_mach_vm_allocate_trap,
 ) -> kern_return_t {
     let task = *TASK_SELF;
@@ -60,23 +59,20 @@ pub fn _kernelrpc_mach_vm_allocate_trap(
 }
 
 pub fn _kernelrpc_mach_vm_deallocate_trap(
-    hal: &impl HalProvider,
+    cpu: &Cpu,
     args: ARG__kernelrpc_mach_vm_deallocate_trap,
 ) -> kern_return_t {
     if args.target == *TASK_SELF {
         if let Err(err) = VmMap::unmap(args.address, args.size as usize) {
             return err.as_kern_return();
         }
-        hal.flush_tlb(
-            args.address.as_u64(),
-            (args.size as usize).div_ceil(PAGE_SIZE),
-        );
+        cpu.flush_tlb(args.address, (args.size as usize).div_ceil(PAGE_SIZE));
     }
     unsafe { mach_vm_deallocate(args.target, args.address.as_u64(), args.size) }
 }
 
 pub fn _kernelrpc_mach_vm_protect_trap(
-    hal: &impl HalProvider,
+    cpu: &Cpu,
     mut args: ARG__kernelrpc_mach_vm_protect_trap,
 ) -> kern_return_t {
     let size = align_to_page(args.size as usize);
@@ -87,10 +83,9 @@ pub fn _kernelrpc_mach_vm_protect_trap(
         let Some(prot) = Protection::from_bits(args.new_protection as u64) else {
             return KERN_INVALID_ARGUMENT;
         };
-        if let Err(err) = VmMap::protect(args.address, size, prot, args.set_maximum != 0) {
+        if let Err(err) = VmMap::protect(cpu, args.address, size, prot, args.set_maximum != 0) {
             return err.as_kern_return();
         }
-        hal.flush_tlb(args.address.as_u64(), size / PAGE_SIZE);
         args.new_protection &= !VM_PROT_EXECUTE;
         args.set_maximum = 0;
     }
@@ -108,7 +103,7 @@ pub fn _kernelrpc_mach_vm_protect_trap(
 }
 
 pub fn _kernelrpc_mach_vm_map_trap(
-    _hal: &impl HalProvider,
+    _cpu: &Cpu,
     args: ARG__kernelrpc_mach_vm_map_trap,
 ) -> kern_return_t {
     macro_rules! set_prot {

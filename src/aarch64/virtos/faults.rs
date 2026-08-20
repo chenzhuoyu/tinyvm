@@ -1,7 +1,7 @@
 use std::io::{ErrorKind, Read, Result as IoResult, Seek, SeekFrom};
 
 use crate::{
-    aarch64::{disasm::disasm, paging::PAGE_SIZE, virtos::mem::VmMap, vm::Vm},
+    aarch64::{disasm::disasm, paging::PAGE_SIZE, vm::Vm},
     mem::Protection,
     utils::ptr::Uintptr,
 };
@@ -40,7 +40,7 @@ fn do_fetch_page<F: Read + Seek>(
 
     // FIXME: it may need page table invalidations here
     /* map the loaded page into guest space */
-    VmMap::protect(base, PAGE_SIZE, prot, false)?;
+    // VmMap::protect(cpu, base, PAGE_SIZE, prot, false)?;
     Vm::map(base, PAGE_SIZE, prot);
     Ok(())
 }

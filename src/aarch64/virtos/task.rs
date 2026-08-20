@@ -5,12 +5,12 @@ use mach2::{
     traps::mach_task_self,
 };
 
-use crate::aarch64::virtos::HalProvider;
+use crate::aarch64::cpu::Cpu;
 
 /// The singleton of mach-port that represents `self`.
 pub(super) static TASK_SELF: LazyLock<mach_port_t> = LazyLock::new(|| unsafe { mach_task_self() });
 
 #[inline]
-pub fn task_self_trap(_hal: &impl HalProvider) -> mach_port_name_t {
+pub fn task_self_trap(_cpu: &Cpu) -> mach_port_name_t {
     *TASK_SELF
 }

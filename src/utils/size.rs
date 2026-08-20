@@ -1,9 +1,12 @@
-#[inline]
+#[cfg(target_arch = "aarch64")]
+use crate::aarch64::paging::PAGE_SIZE;
+
+#[inline(always)]
 pub fn align_to_page(size: usize) -> usize {
-    unsafe { (size + libc::vm_page_size - 1) & !(libc::vm_page_size - 1) }
+    (size + PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
 }
 
-#[inline]
+#[inline(always)]
 pub fn is_page_aligned(value: usize) -> bool {
-    unsafe { value.is_multiple_of(libc::vm_page_size) }
+    value.is_multiple_of(PAGE_SIZE)
 }

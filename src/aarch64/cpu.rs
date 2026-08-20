@@ -11,10 +11,9 @@ use crate::{
         regs::*,
         syscall::Syscall,
         virtos::{
-            HalProvider, IRQ_STUBS,
+            IRQ_STUBS, STACK_TOP,
             mem::VmMap,
             mmio::{MmioKind, MmioRequest, MmioResponse},
-            tlb::TlbProvider,
         },
     },
     hv_call,
@@ -96,10 +95,37 @@ impl Cpu {
         cpu.write_reg(Reg::PC, pc);
         cpu.write_reg(Reg::CPSR, 0);
         cpu.write_sys_reg(SysReg::SP_EL0, sp);
+        cpu.write_sys_reg(SysReg::SP_EL1, STACK_TOP.as_u64());
         cpu.write_sys_reg(SysReg::VBAR_EL1, IRQ_STUBS.as_u64());
         cpu.write_sys_reg(SysReg::CPACR_EL1, CPACR_FPEN);
         cpu.write_sys_reg(SysReg::MDSCR_EL1, MDSCR_SS);
         cpu
+    }
+}
+
+impl Cpu {
+    #[inline]
+    pub fn read_reg(&self, reg: Reg) -> u64 {
+        let mut ret = 0u64;
+        hv_call!(hv_vcpu_get_reg(self.vcpu, reg.reg(), &raw mut ret));
+        ret
+    }
+
+    #[inline]
+    pub fn write_reg(&self, reg: Reg, value: u64) {
+        hv_call!(hv_vcpu_set_reg(self.vcpu, reg.reg(), value));
+    }
+
+    #[inline]
+    pub fn read_sys_reg(&self, reg: SysReg) -> u64 {
+        let mut ret = 0u64;
+        hv_call!(hv_vcpu_get_sys_reg(self.vcpu, reg.sys_reg(), &raw mut ret));
+        ret
+    }
+
+    #[inline]
+    pub fn write_sys_reg(&self, reg: SysReg, value: u64) {
+        hv_call!(hv_vcpu_set_sys_reg(self.vcpu, reg.sys_reg(), value));
     }
 }
 
@@ -124,9 +150,6 @@ impl Cpu {
             Exception::SOFTWARE_STEP => {
                 let pc = Uintptr::from(self.read_reg(Reg::PC));
                 tracing::trace!("SINGLE_STEP: {}", disasm(pc));
-                if pc.addr() == 0xffffff0200 {
-                    panic!("dead loop");
-                }
                 self.write_reg(Reg::CPSR, self.read_reg(Reg::CPSR) | PSTATE_SS);
             }
             ec => {
@@ -334,7 +357,7 @@ impl Cpu {
                 insn = disasm(pc)
             );
         } else {
-            self.flush_tlb(addr.as_u64(), 1);
+            self.flush_tlb(addr, 1);
         }
     }
 
@@ -357,7 +380,7 @@ impl Cpu {
                 insn = disasm(pc)
             );
         } else {
-            self.flush_tlb(addr.as_u64(), 1);
+            self.flush_tlb(addr, 1);
         }
     }
 }
@@ -393,7 +416,6 @@ impl Debug for Cpu {
         }
         writeln!(f, "Debug dump of CPU {}:", self.vcpu)?;
         writeln!(f, "  Generic Registers:")?;
-        writeln!(f, "     PC: {:016x}      SP: {:016x}", r!(PC), s!(SP_EL0))?;
         writeln!(f, "     FP: {:016x}      LR: {:016x}", r!(FP), r!(LR))?;
         writeln!(f, "     X0: {:016x}      X1: {:016x}", r!(X0), r!(X1))?;
         writeln!(f, "     X2: {:016x}      X3: {:016x}", r!(X2), r!(X3))?;
@@ -409,13 +431,15 @@ impl Debug for Cpu {
         writeln!(f, "    X22: {:016x}     X23: {:016x}", r!(X22), r!(X23))?;
         writeln!(f, "    X24: {:016x}     X25: {:016x}", r!(X24), r!(X25))?;
         writeln!(f, "    X26: {:016x}     X27: {:016x}", r!(X26), r!(X27))?;
-        writeln!(f, "    X28: {:016x}", r!(X28))?;
+        writeln!(f, "    X28: {:016x}      PC: {:016x}", r!(X28), r!(PC))?;
         writeln!(f)?;
         writeln!(f, "  Control & Status Registers:")?;
         writeln!(f, "          FPCR: {:016x}", r!(FPCR))?;
         writeln!(f, "          FPSR: {:016x}", r!(FPSR))?;
         writeln!(f, "          CPSR: {:016x}", r!(CPSR))?;
         writeln!(f, "      SPSR_EL1: {:016x}", s!(SPSR_EL1))?;
+        writeln!(f, "        SP_EL0: {:016x}", s!(SP_EL0))?;
+        writeln!(f, "        SP_EL1: {:016x}", s!(SP_EL1))?;
         writeln!(f, "       ELR_EL1: {:016x}", s!(ELR_EL1))?;
         writeln!(f, "       ESR_EL1: {:016x}", s!(ESR_EL1))?;
         writeln!(f, "       FAR_EL1: {:016x}", s!(FAR_EL1))?;
@@ -428,31 +452,5 @@ impl Debug for Cpu {
         writeln!(f, "     TTBR0_EL1: {:016x}", s!(TTBR0_EL1))?;
         writeln!(f, "     TTBR1_EL1: {:016x}", s!(TTBR1_EL1))?;
         Ok(())
-    }
-}
-
-impl HalProvider for Cpu {
-    #[inline]
-    fn read_reg(&self, reg: Reg) -> u64 {
-        let mut ret = 0u64;
-        hv_call!(hv_vcpu_get_reg(self.vcpu, reg.reg(), &raw mut ret));
-        ret
-    }
-
-    #[inline]
-    fn write_reg(&self, reg: Reg, value: u64) {
-        hv_call!(hv_vcpu_set_reg(self.vcpu, reg.reg(), value));
-    }
-
-    #[inline]
-    fn read_sys_reg(&self, reg: SysReg) -> u64 {
-        let mut ret = 0u64;
-        hv_call!(hv_vcpu_get_sys_reg(self.vcpu, reg.sys_reg(), &raw mut ret));
-        ret
-    }
-
-    #[inline]
-    fn write_sys_reg(&self, reg: SysReg, value: u64) {
-        hv_call!(hv_vcpu_set_sys_reg(self.vcpu, reg.sys_reg(), value));
     }
 }

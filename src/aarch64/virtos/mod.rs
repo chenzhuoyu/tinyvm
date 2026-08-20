@@ -15,10 +15,7 @@ pub mod tlb;
 use std::io::Error as IoError;
 
 use crate::{
-    aarch64::{
-        regs::{Reg, SysReg},
-        virtos::mem::VmKind,
-    },
+    aarch64::paging::PAGE_SIZE,
     mem::Protection,
     utils::{ptr::Uintptr, size::align_to_page},
 };
@@ -26,12 +23,8 @@ use crate::{
 /// The guest address of IRQ stubs.
 pub const IRQ_STUBS: Uintptr = Uintptr::new(0xffffff0000);
 
-pub trait HalProvider {
-    fn read_reg(&self, reg: Reg) -> u64;
-    fn write_reg(&self, reg: Reg, value: u64);
-    fn read_sys_reg(&self, sys_reg: SysReg) -> u64;
-    fn write_sys_reg(&self, sys_reg: SysReg, value: u64);
-}
+/// The stack top address for IRQ stubs.
+pub const STACK_TOP: Uintptr = Uintptr::new(0xfffffffff0);
 
 unsafe extern "C" {
     unsafe static virtos_end: u8;
@@ -47,18 +40,10 @@ fn virtos_code() -> &'static [u8] {
     }
 }
 
-pub fn init() {
-    let code = virtos_code();
-    let size = align_to_page(code.len());
-
-    /* initialize the page table and memory manager */
-    mem::VmMap::init();
-    commpage::init();
-
-    /* allocate memory for IRQ stubs */
+fn map_fixed(addr: Uintptr, size: usize) {
     let ret = unsafe {
         libc::mmap(
-            IRQ_STUBS.as_ptr(),
+            addr.as_ptr(),
             size,
             libc::PROT_READ | libc::PROT_WRITE,
             libc::MAP_ANON | libc::MAP_PRIVATE | libc::MAP_FIXED,
@@ -66,13 +51,26 @@ pub fn init() {
             0,
         )
     };
-
-    /* check allocation result */
     assert!(
         ret != libc::MAP_FAILED,
-        "cannot allocate memory for IRQ stubs: {err}",
+        "cannot allocate memory at {addr:p}: {err}",
         err = IoError::last_os_error(),
     );
+}
+
+pub fn init() {
+    let code = virtos_code();
+    let size = align_to_page(code.len());
+    let base = STACK_TOP.align_down(PAGE_SIZE);
+
+    /* initialize the page table and memory manager */
+    assert!(size <= PAGE_SIZE * 3, "virtos is too large");
+    mem::VmMap::init();
+    commpage::init();
+
+    /* allocate memory for IRQ stubs and EL1 stack */
+    map_fixed(IRQ_STUBS, size);
+    map_fixed(base, PAGE_SIZE);
 
     /* load the IRQ stubs into memory */
     unsafe {
@@ -80,9 +78,9 @@ pub fn init() {
         std::ptr::copy_nonoverlapping(code.as_ptr(), IRQ_STUBS.as_ptr(), code.len());
     }
 
-    /* insert into the VM map */
+    /* insert IRQ stubs into the VM map */
     mem::VmMap::insert(
-        VmKind::Regular,
+        mem::VmKind::Regular,
         IRQ_STUBS,
         size,
         Protection::RX,
@@ -94,5 +92,21 @@ pub fn init() {
     tracing::debug!(
         "IRQ Stubs are loaded into {IRQ_STUBS:p}-{end:p}",
         end = IRQ_STUBS + code.len()
+    );
+
+    /* insert EL1 stack into the VM map */
+    mem::VmMap::insert(
+        mem::VmKind::Regular,
+        base,
+        PAGE_SIZE,
+        Protection::RW,
+        Protection::RW,
+        true,
+    );
+
+    /* log the IRQ stubs range */
+    tracing::debug!(
+        "EL1 stack is loaded into {base:p}-{end:p}, SP_EL1={STACK_TOP:p}",
+        end = base + PAGE_SIZE
     );
 }

@@ -39,6 +39,11 @@ impl Uintptr {
     }
 
     #[inline(always)]
+    pub const fn align_down(self, size: usize) -> Self {
+        Self(self.0 - self.0 % size)
+    }
+
+    #[inline(always)]
     pub const fn is_aligned_to(self, size: usize) -> bool {
         self.0.is_multiple_of(size)
     }

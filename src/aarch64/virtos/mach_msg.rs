@@ -13,12 +13,12 @@ use mach2::{
 
 use crate::{
     aarch64::{
+        cpu::Cpu,
         errors::AsKernReturn,
         syscall::mach::{
             ARG_mach_msg_overwrite_trap, ARG_mach_msg_trap, ARG_mach_msg2_trap, mach_msg_option64_t,
         },
         virtos::{
-            HalProvider,
             mem::{VmKind, VmMap},
             task::TASK_SELF,
         },
@@ -200,11 +200,7 @@ fn parse_message<T: Copy>(args: &ARG_mach_msg2_trap) -> Option<(T, Responder)> {
     }
 }
 
-fn handle_mach_vm_map(
-    _hal: &impl HalProvider,
-    req: mach_vm_map_request,
-    reply: Responder,
-) -> kern_return_t {
+fn handle_mach_vm_map(_cpu: &Cpu, req: mach_vm_map_request, reply: Responder) -> kern_return_t {
     macro_rules! set_prot {
         ($prot:ident, $flag:ident, $name:ident) => {
             if req.$prot & $flag != 0 {
@@ -288,19 +284,16 @@ fn handle_mach_vm_map(
 }
 
 #[inline]
-pub fn mach_msg_trap(_hal: &impl HalProvider, _args: ARG_mach_msg_trap) -> kern_return_t {
+pub fn mach_msg_trap(_cpu: &Cpu, _args: ARG_mach_msg_trap) -> kern_return_t {
     KERN_NOT_SUPPORTED
 }
 
 #[inline]
-pub fn mach_msg_overwrite_trap(
-    _hal: &impl HalProvider,
-    _args: ARG_mach_msg_overwrite_trap,
-) -> kern_return_t {
+pub fn mach_msg_overwrite_trap(_cpu: &Cpu, _args: ARG_mach_msg_overwrite_trap) -> kern_return_t {
     KERN_NOT_SUPPORTED
 }
 
-pub fn mach_msg2_trap(hal: &impl HalProvider, mut args: ARG_mach_msg2_trap) -> kern_return_t {
+pub fn mach_msg2_trap(cpu: &Cpu, mut args: ARG_mach_msg2_trap) -> kern_return_t {
     match dbg!(args.req_id()) {
         MACH_VM_ALLOCATE => {
             unimplemented!("mach_vm_allocate() through mach_msg2_trap()");
@@ -315,7 +308,7 @@ pub fn mach_msg2_trap(hal: &impl HalProvider, mut args: ARG_mach_msg2_trap) -> k
             if !args.options.contains(mach_msg_option64_t::MACH64_RCV_MSG) {
                 KERN_INVALID_ARGUMENT
             } else if let Some((req, reply)) = parse_message(&args) {
-                handle_mach_vm_map(hal, req, reply)
+                handle_mach_vm_map(cpu, req, reply)
             } else {
                 KERN_INVALID_ARGUMENT
             }

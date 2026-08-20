@@ -11,13 +11,14 @@ use smallvec::SmallVec;
 
 use crate::{
     aarch64::{
+        cpu::Cpu,
         disasm::disasm,
         paging::{PAGE_SIZE, PageTable},
         virtos::mmio::{MmioHandler, MmioKind, MmioRequest, MmioResponse},
         vm::Vm,
     },
     mem::Protection,
-    utils::ptr::Uintptr,
+    utils::{ptr::Uintptr, size::align_to_page},
 };
 
 #[derive(Clone)]
@@ -55,6 +56,7 @@ struct VmRegion {
     next: Uintptr,
     prot: Protection,
     max_prot: Protection,
+    populated: bool,
 }
 
 impl VmRegion {
@@ -149,6 +151,7 @@ impl VmMap {
             prot,
             next: addr + size,
             max_prot,
+            populated: false,
         };
         self.unmap_range(addr, size)?;
         region.map(addr)?;
@@ -176,6 +179,7 @@ impl VmMap {
                         prot: region.prot,
                         kind: region.kind.clone(),
                         max_prot: region.max_prot,
+                        populated: region.populated,
                     }
                 });
             }
@@ -186,24 +190,46 @@ impl VmMap {
                         prot: region.prot,
                         kind: region.kind.clone(),
                         max_prot: region.max_prot,
+                        populated: region.populated,
                     }
                 });
             }
             region.unmap(base.max(addr), region.next.min(addr + size))?;
         }
-        self.page.unset(addr, size.div_ceil(PAGE_SIZE));
+        self.page.unset(addr, size / PAGE_SIZE);
         Ok(())
     }
 
+    fn protect_range(
+        &mut self,
+        cpu: &Cpu,
+        addr: Uintptr,
+        size: usize,
+        prot: Protection,
+        set_max: bool,
+    ) -> IoResult<()> {
+        todo!()
+        // let end = addr + size;
+        // let mut should_flush_tlb = false;
+
+        // /* scan through the covered rangess */
+        // for (&base, region) in self.maps.range_mut(..end).rev() {
+        //     if region.next > addr {
+        //         todo!();
+        //     } else {
+        //         break;
+        //     }
+        // }
+        // Ok(())
+    }
+
     fn prefault_range(&mut self, addr: Uintptr, size: usize) {
-        for (&base, region) in self.maps.range(..addr + size).rev() {
+        for (&base, region) in self.maps.range_mut(..addr + size).rev() {
             if region.next > addr {
-                self.page.prefault(
-                    base.max(addr),
-                    region.next.min(addr + size),
-                    region.prot,
-                    region.max_prot,
-                );
+                let base = base.max(addr);
+                let next = region.next.min(addr + size);
+                self.page.prefault(base, next, region.prot, region.max_prot);
+                region.populated = true;
             } else {
                 break;
             }
@@ -216,9 +242,9 @@ impl VmMap {
     fn on_mmio(&mut self, pc: Uintptr, req: &mut MmioRequest) -> Option<MmioResponse> {
         let (.., region) = self
             .maps
-            .range(..=req.addr)
+            .range_mut(..=req.addr)
             .next_back()
-            .filter(|&(.., r)| r.next > req.addr)?;
+            .filter(|(.., r)| r.next > req.addr)?;
         let VmKind::Mmio(mmio) = &region.kind else {
             panic!(
                 "unexpected MMIO fault\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
@@ -226,12 +252,13 @@ impl VmMap {
                 insn = disasm(pc)
             );
         };
+        region.populated = true;
         Some(mmio.handle(pc, req))
     }
 
     #[inline]
     fn on_page_fault(&mut self, addr: Uintptr, kind: MmioKind) -> bool {
-        let Some((.., region)) = self.maps.range(..=addr).next_back() else {
+        let Some((.., region)) = self.maps.range_mut(..=addr).next_back() else {
             return false;
         };
         if region.next <= addr {
@@ -247,6 +274,7 @@ impl VmMap {
         };
         region.prot.contains(mask) && {
             self.page.set(addr, region.prot, region.max_prot);
+            region.populated = true;
             true
         }
     }
@@ -261,23 +289,42 @@ impl VmMap {
         prot: Protection,
         max_prot: Protection,
     ) -> IoResult<()> {
-        VMM.lock()
-            .map_range(kind.into(), addr, size, prot, max_prot)
+        VMM.lock().map_range(
+            kind.into(),
+            addr.align_down(PAGE_SIZE),
+            align_to_page(size),
+            prot,
+            max_prot,
+        )
     }
 
     #[inline]
     pub fn unmap(addr: Uintptr, size: usize) -> IoResult<()> {
-        VMM.lock().unmap_range(addr, size)
+        VMM.lock()
+            .unmap_range(addr.align_down(PAGE_SIZE), align_to_page(size))
     }
 
     #[inline]
-    pub fn protect(addr: Uintptr, size: usize, prot: Protection, set_max: bool) -> IoResult<()> {
-        todo!()
+    pub fn protect(
+        cpu: &Cpu,
+        addr: Uintptr,
+        size: usize,
+        prot: Protection,
+        set_max: bool,
+    ) -> IoResult<()> {
+        VMM.lock().protect_range(
+            cpu,
+            addr.align_down(PAGE_SIZE),
+            align_to_page(size),
+            prot,
+            set_max,
+        )
     }
 
     #[inline]
     pub fn prefault(addr: Uintptr, size: usize) {
-        VMM.lock().prefault_range(addr, size);
+        VMM.lock()
+            .prefault_range(addr.align_down(PAGE_SIZE), align_to_page(size));
     }
 }
 
