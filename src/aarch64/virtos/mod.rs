@@ -81,17 +81,14 @@ pub fn init() {
     }
 
     /* insert into the VM map */
-    let ret = mem::VmMap::map(
+    mem::VmMap::insert(
         VmKind::Regular,
         IRQ_STUBS,
         size,
         Protection::RX,
         Protection::RX,
+        true,
     );
-
-    /* pre-populate PTEs for IRQ stubs */
-    ret.expect("cannot load IRQ stubs");
-    mem::VmMap::prefault(IRQ_STUBS, size);
 
     /* log the IRQ stubs range */
     tracing::debug!(

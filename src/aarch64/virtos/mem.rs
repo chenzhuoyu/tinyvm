@@ -11,6 +11,7 @@ use smallvec::SmallVec;
 
 use crate::{
     aarch64::{
+        disasm::disasm,
         paging::{PAGE_SIZE, PageTable},
         virtos::mmio::{MmioHandler, MmioKind, MmioRequest, MmioResponse},
         vm::Vm,
@@ -212,6 +213,23 @@ impl VmMap {
 
 impl VmMap {
     #[inline]
+    fn on_mmio(&mut self, pc: Uintptr, req: &mut MmioRequest) -> Option<MmioResponse> {
+        let (.., region) = self
+            .maps
+            .range(..=req.addr)
+            .next_back()
+            .filter(|&(.., r)| r.next > req.addr)?;
+        let VmKind::Mmio(mmio) = &region.kind else {
+            panic!(
+                "unexpected MMIO fault\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
+                addr = req.addr,
+                insn = disasm(pc)
+            );
+        };
+        Some(mmio.handle(pc, req))
+    }
+
+    #[inline]
     fn on_page_fault(&mut self, addr: Uintptr, kind: MmioKind) -> bool {
         let Some((.., region)) = self.maps.range(..=addr).next_back() else {
             return false;
@@ -227,11 +245,10 @@ impl VmMap {
                 _ => unreachable!(),
             }
         };
-        if !region.prot.contains(mask) {
-            return false;
+        region.prot.contains(mask) && {
+            self.page.set(addr, region.prot, region.max_prot);
+            true
         }
-        self.page.set(addr, region.prot, region.max_prot);
-        true
     }
 }
 
@@ -270,23 +287,32 @@ impl VmMap {
         unsafe { (*VMM.data_ptr()).page.lookup(addr) }
     }
 
-    #[inline]
     pub fn insert(
         kind: impl Into<VmKind>,
         addr: Uintptr,
         size: usize,
         prot: Protection,
         max_prot: Protection,
+        prefault: bool,
     ) {
-        if let Err(err) = Self::map(kind, addr, size, prot, max_prot) {
-            panic!("cannot add VM map entry: {err}");
+        let kind = kind.into();
+        let mut vmm = VMM.lock();
+
+        /* map the pages */
+        vmm.map_range(kind, addr, size, prot, max_prot)
+            .expect("cannot add VM map entry");
+
+        /* prefault if needed */
+        if prefault {
+            vmm.prefault_range(addr, size);
         }
     }
 }
 
 impl VmMap {
+    #[inline]
     pub fn handle_mmio(pc: Uintptr, req: &mut MmioRequest) -> Option<MmioResponse> {
-        todo!()
+        VMM.lock().on_mmio(pc, req)
     }
 
     #[inline]

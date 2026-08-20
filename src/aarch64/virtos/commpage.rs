@@ -43,6 +43,7 @@ pub(super) fn init() {
         PAGE_SIZE,
         Protection::READ,
         Protection::READ,
+        true,
     );
     VmMap::insert(
         handle_commpage,
@@ -50,5 +51,6 @@ pub(super) fn init() {
         PAGE_SIZE,
         Protection::RW,
         Protection::RW,
+        true,
     );
 }

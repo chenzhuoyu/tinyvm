@@ -339,6 +339,7 @@ pub fn shared_region_map_and_slide_2_np(
     mappings_count: u32,
     mappings_u: *mut shared_mapping_np,
 ) -> IoResult<()> {
+    todo!();
     let mut max_virt = 0usize;
     let mut min_virt = usize::MAX;
 

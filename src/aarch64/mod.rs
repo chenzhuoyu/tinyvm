@@ -100,7 +100,7 @@ impl FrameBuilder<'_> {
 
 #[inline]
 fn on_load(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
-    VmMap::insert(VmKind::Regular, addr, size, prot, max_prot);
+    VmMap::insert(VmKind::Regular, addr, size, prot, max_prot, false);
 }
 
 pub fn vm_exec() -> Unit {
@@ -119,6 +119,7 @@ pub fn vm_exec() -> Unit {
         MAIN_STACK_SIZE,
         Protection::RW,
         Protection::RW,
+        false,
     );
 
     /* load dyld and the target image */
