@@ -6,7 +6,7 @@ use mach2::{
     },
     ndr::NDR_record_t,
     port::{MACH_PORT_NULL, mach_port_t},
-    vm::{mach_vm_deallocate, mach_vm_map},
+    vm::mach_vm_map,
     vm_inherit::VM_INHERIT_DEFAULT,
     vm_prot::{VM_PROT_ALL, VM_PROT_ALLEXEC, VM_PROT_EXECUTE, VM_PROT_READ, VM_PROT_WRITE},
 };
@@ -14,7 +14,6 @@ use mach2::{
 use crate::{
     aarch64::{
         cpu::Cpu,
-        errors::AsKernReturn,
         syscall::mach::{
             ARG_mach_msg_overwrite_trap, ARG_mach_msg_trap, ARG_mach_msg2_trap, mach_msg_option64_t,
         },
@@ -235,7 +234,7 @@ fn handle_mach_vm_map(_cpu: &Cpu, req: mach_vm_map_request, reply: Responder) ->
     }
 
     /* perform the actual memory map */
-    let mut result = unsafe {
+    let result = unsafe {
         mach_vm_map(
             *TASK_SELF,
             &raw mut addr,
@@ -251,28 +250,21 @@ fn handle_mach_vm_map(_cpu: &Cpu, req: mach_vm_map_request, reply: Responder) ->
         )
     };
 
-    /* insert into page table, if allocation was successful */
-    if result == KERN_SUCCESS {
-        let ret = VmMap::map(
-            VmKind::Regular,
-            Uintptr::from(addr),
-            align_to_page(req.size as usize),
-            cur_prot,
-            max_prot,
-        );
-        if let Err(err) = ret {
-            unsafe {
-                result = err.as_kern_return();
-                mach_vm_deallocate(*TASK_SELF, addr, req.size);
-            }
-        }
-    }
-
     /* check if the syscall is successful */
     if result != KERN_SUCCESS {
         reply.reply(mig_reply_error_t::new(req.head.msgh_id, reply.port, result));
         return KERN_SUCCESS;
     }
+
+    /* insert into page table */
+    VmMap::map(
+        VmKind::Regular,
+        Uintptr::from(addr),
+        align_to_page(req.size as usize),
+        cur_prot,
+        max_prot,
+        false,
+    );
 
     /* construct the response */
     let addr = Uintptr::from(addr);
@@ -294,7 +286,7 @@ pub fn mach_msg_overwrite_trap(_cpu: &Cpu, _args: ARG_mach_msg_overwrite_trap) -
 }
 
 pub fn mach_msg2_trap(cpu: &Cpu, mut args: ARG_mach_msg2_trap) -> kern_return_t {
-    match dbg!(args.req_id()) {
+    match args.req_id() {
         MACH_VM_ALLOCATE => {
             unimplemented!("mach_vm_allocate() through mach_msg2_trap()");
         }

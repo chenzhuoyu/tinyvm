@@ -122,8 +122,10 @@ impl Image {
         let file = Self::map_image(&path)?;
 
         /* read the mach header */
-        let mio = &mut MemoryIo(&file);
-        let hdr = mio.read::<MachHeader64<LittleEndian>>()?;
+        let hdr = {
+            tracing::debug!("Loading image from {path:?}");
+            MemoryIo(&file).read::<MachHeader64<LittleEndian>>()?
+        };
 
         /* validate the Mach-O magic again */
         if hdr.magic() != MH_CIGAM_64 {

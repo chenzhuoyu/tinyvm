@@ -100,7 +100,7 @@ impl FrameBuilder<'_> {
 
 #[inline]
 fn on_load(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
-    VmMap::insert(VmKind::Regular, addr, size, prot, max_prot, false);
+    VmMap::map(VmKind::Regular, addr, size, prot, max_prot, false);
 }
 
 pub fn vm_exec() -> Unit {
@@ -113,7 +113,7 @@ pub fn vm_exec() -> Unit {
     let frame = stack.as_mut::<InitStackFrame>();
 
     /* insert the stack range into page table */
-    VmMap::insert(
+    VmMap::map(
         VmKind::Regular,
         stack,
         MAIN_STACK_SIZE,

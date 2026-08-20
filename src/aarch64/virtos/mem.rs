@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     fmt::{Debug, Formatter, Result as FmtResult},
-    io::Result as IoResult,
+    io::{Error as IoError, Result as IoResult},
     ops::{Deref, DerefMut},
     sync::Arc,
 };
@@ -60,26 +60,19 @@ struct VmRegion {
 }
 
 impl VmRegion {
-    fn map(&self, addr: Uintptr) -> IoResult<()> {
+    fn map(&self, addr: Uintptr) {
         if self.kind.is_regular() {
             Vm::map(addr, self.next - addr, self.prot);
-            Ok(())
-        } else {
-            // TODO
-            Ok(())
         }
     }
 
-    fn unmap(&self, start: Uintptr, end: Uintptr) -> IoResult<()> {
+    fn unmap(&self, start: Uintptr, end: Uintptr) {
         assert!(
             end <= self.next,
             "unmapping addresses beyound the current region: {self:#?}"
         );
-        if self.kind.is_regular() {
+        if self.populated || self.kind.is_regular() {
             Vm::unmap(start, end - start);
-            Ok(())
-        } else {
-            todo!()
         }
     }
 }
@@ -138,6 +131,17 @@ impl VmMap {
 }
 
 impl VmMap {
+    fn scan(&self, addr: Uintptr, size: usize) -> SmallVec<[Uintptr; 16]> {
+        self.maps
+            .range(..addr + size)
+            .rev()
+            .take_while(|&(.., r)| r.next > addr)
+            .map(|(&p, ..)| p)
+            .collect()
+    }
+}
+
+impl VmMap {
     fn map_range(
         &mut self,
         kind: VmKind,
@@ -145,29 +149,29 @@ impl VmMap {
         size: usize,
         prot: Protection,
         max_prot: Protection,
-    ) -> IoResult<()> {
+        prefault: bool,
+    ) {
         let region = VmRegion {
             kind,
             prot,
             next: addr + size,
             max_prot,
-            populated: false,
+            populated: prefault,
         };
-        self.unmap_range(addr, size)?;
-        region.map(addr)?;
+
+        /* remove existing mappings before adding new one */
+        self.unmap_range(addr, size);
+        region.map(addr);
         self.maps.insert(addr, region);
-        Ok(())
+
+        /* prefault the pages if needed */
+        if prefault {
+            self.page.prefault(addr, addr + size, prot, max_prot);
+        }
     }
 
-    fn unmap_range(&mut self, addr: Uintptr, size: usize) -> IoResult<()> {
-        let keys = self
-            .maps
-            .range(..addr + size)
-            .rev()
-            .take_while(|&(.., r)| r.next > addr)
-            .map(|(&p, ..)| p)
-            .collect::<SmallVec<[Uintptr; 8]>>();
-        for base in keys {
+    fn unmap_range(&mut self, addr: Uintptr, size: usize) {
+        for base in self.scan(addr, size) {
             let region = self
                 .maps
                 .remove(&base)
@@ -194,10 +198,9 @@ impl VmMap {
                     }
                 });
             }
-            region.unmap(base.max(addr), region.next.min(addr + size))?;
+            region.unmap(base.max(addr), region.next.min(addr + size));
         }
         self.page.unset(addr, size / PAGE_SIZE);
-        Ok(())
     }
 
     fn protect_range(
@@ -208,38 +211,29 @@ impl VmMap {
         prot: Protection,
         set_max: bool,
     ) -> IoResult<()> {
-        todo!()
-        // let end = addr + size;
-        // let mut should_flush_tlb = false;
-
-        // /* scan through the covered rangess */
-        // for (&base, region) in self.maps.range_mut(..end).rev() {
-        //     if region.next > addr {
-        //         todo!();
-        //     } else {
-        //         break;
-        //     }
-        // }
-        // Ok(())
-    }
-
-    fn prefault_range(&mut self, addr: Uintptr, size: usize) {
-        for (&base, region) in self.maps.range_mut(..addr + size).rev() {
-            if region.next > addr {
-                let base = base.max(addr);
-                let next = region.next.min(addr + size);
-                self.page.prefault(base, next, region.prot, region.max_prot);
-                region.populated = true;
-            } else {
-                break;
+        if let Some(region) = self.maps.get_mut(&addr)
+            && region.next == addr + size
+        {
+            if !prot.difference(region.max_prot).is_empty() {
+                return Err(IoError::from_raw_os_error(libc::EPERM));
             }
+            if set_max {
+                region.max_prot = prot;
+            }
+            if region.populated {
+                self.page.protect(addr, size / PAGE_SIZE, prot);
+                cpu.flush_tlb(addr, size / PAGE_SIZE);
+            }
+            region.prot = prot;
+            return Ok(());
         }
+        todo!()
     }
 }
 
 impl VmMap {
     #[inline]
-    fn on_mmio(&mut self, pc: Uintptr, req: &mut MmioRequest) -> Option<MmioResponse> {
+    fn find_mmio(&mut self, pc: Uintptr, req: &MmioRequest) -> Option<Arc<dyn MmioHandler>> {
         let (.., region) = self
             .maps
             .range_mut(..=req.addr)
@@ -253,11 +247,11 @@ impl VmMap {
             );
         };
         region.populated = true;
-        Some(mmio.handle(pc, req))
+        Some(mmio.clone())
     }
 
     #[inline]
-    fn on_page_fault(&mut self, addr: Uintptr, kind: MmioKind) -> bool {
+    fn page_fault_in(&mut self, addr: Uintptr, kind: MmioKind) -> bool {
         let Some((.., region)) = self.maps.range_mut(..=addr).next_back() else {
             return false;
         };
@@ -288,20 +282,16 @@ impl VmMap {
         size: usize,
         prot: Protection,
         max_prot: Protection,
-    ) -> IoResult<()> {
-        VMM.lock().map_range(
-            kind.into(),
-            addr.align_down(PAGE_SIZE),
-            align_to_page(size),
-            prot,
-            max_prot,
-        )
+        prefault: bool,
+    ) {
+        VMM.lock()
+            .map_range(kind.into(), addr, size, prot, max_prot, prefault);
     }
 
     #[inline]
-    pub fn unmap(addr: Uintptr, size: usize) -> IoResult<()> {
+    pub fn unmap(addr: Uintptr, size: usize) {
         VMM.lock()
-            .unmap_range(addr.align_down(PAGE_SIZE), align_to_page(size))
+            .unmap_range(addr.align_down(PAGE_SIZE), align_to_page(size));
     }
 
     #[inline]
@@ -320,12 +310,6 @@ impl VmMap {
             set_max,
         )
     }
-
-    #[inline]
-    pub fn prefault(addr: Uintptr, size: usize) {
-        VMM.lock()
-            .prefault_range(addr.align_down(PAGE_SIZE), align_to_page(size));
-    }
 }
 
 impl VmMap {
@@ -333,37 +317,17 @@ impl VmMap {
     pub fn lookup(addr: Uintptr) -> Protection {
         unsafe { (*VMM.data_ptr()).page.lookup(addr) }
     }
-
-    pub fn insert(
-        kind: impl Into<VmKind>,
-        addr: Uintptr,
-        size: usize,
-        prot: Protection,
-        max_prot: Protection,
-        prefault: bool,
-    ) {
-        let kind = kind.into();
-        let mut vmm = VMM.lock();
-
-        /* map the pages */
-        vmm.map_range(kind, addr, size, prot, max_prot)
-            .expect("cannot add VM map entry");
-
-        /* prefault if needed */
-        if prefault {
-            vmm.prefault_range(addr, size);
-        }
-    }
 }
 
 impl VmMap {
     #[inline]
     pub fn handle_mmio(pc: Uintptr, req: &mut MmioRequest) -> Option<MmioResponse> {
-        VMM.lock().on_mmio(pc, req)
+        let mmio = VMM.lock().find_mmio(pc, req)?;
+        Some(mmio.handle(pc, req))
     }
 
     #[inline]
     pub fn handle_page_fault(addr: Uintptr, kind: MmioKind) -> bool {
-        VMM.lock().on_page_fault(addr, kind)
+        VMM.lock().page_fault_in(addr, kind)
     }
 }

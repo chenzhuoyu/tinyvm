@@ -91,39 +91,27 @@ pub struct Syscall<'p> {
 
 impl<'p> Syscall<'p> {
     pub fn read(cpu: &'p Cpu) -> Self {
-        let num = cpu.read_reg(Reg::X16);
-        let spsr = cpu.read_sys_reg(SysReg::SPSR_EL1);
-
-        /* read syscall args */
-        let mut args = [
-            cpu.read_reg(Reg::X0),
-            cpu.read_reg(Reg::X1),
-            cpu.read_reg(Reg::X2),
-            cpu.read_reg(Reg::X3),
-            cpu.read_reg(Reg::X4),
-            cpu.read_reg(Reg::X5),
-            cpu.read_reg(Reg::X6),
-            cpu.read_reg(Reg::X7),
-            cpu.read_reg(Reg::X8),
-        ];
-
-        /* indirect syscall, use X0 as the syscall number */
-        let num = {
-            if num == 0 {
-                let [first] = args.shift_left([0]);
-                first as i64
-            } else {
-                num as i64
-            }
-        };
-
-        /* construct the syscall */
-        Self {
-            num,
+        let mut ret = Self {
+            args: [
+                cpu.read_reg(Reg::X0),
+                cpu.read_reg(Reg::X1),
+                cpu.read_reg(Reg::X2),
+                cpu.read_reg(Reg::X3),
+                cpu.read_reg(Reg::X4),
+                cpu.read_reg(Reg::X5),
+                cpu.read_reg(Reg::X6),
+                cpu.read_reg(Reg::X7),
+                cpu.read_reg(Reg::X8),
+            ],
+            spsr: cpu.read_sys_reg(SysReg::SPSR_EL1) & !PSTATE_NZCV,
+            num: cpu.read_reg(Reg::X16) as i64,
             cpu,
-            args,
-            spsr: spsr & !PSTATE_NZCV,
+        };
+        if ret.num == 0 {
+            let extra = cpu.read_reg(Reg::X9);
+            ret.num = ret.args.shift_left([extra])[0] as i64;
         }
+        ret
     }
 }
 

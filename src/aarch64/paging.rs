@@ -1,9 +1,3 @@
-use std::{
-    error::{Error, Request as ErrorRequest},
-    fmt::{Display, Formatter, Result as FmtResult},
-    io::Error as IoError,
-};
-
 use crate::{
     aarch64::{
         regs::{SCTLR_EL1, TCR_EL1},
@@ -214,68 +208,17 @@ impl Entry {
 
 impl Entry {
     #[inline]
-    fn set_page(&mut self, phys: Uintptr, prot: Protection, max_prot: Protection) {
-        self.page = PageDescriptor::builder()
-            .valid(1)
-            .ty(1)
-            .AttrIndx(0)
-            .NS(1)
-            .AP(prot.ap())
-            .SH(0b11)
-            .AF(1)
-            .nG(0)
-            .phys_addr(phys.as_u64() / (PAGE_SIZE as u64))
-            .DBM(0)
-            .Contig(0)
-            .PXN(prot.nx())
-            .UXN(prot.nx())
-            .user_data(max_prot.bits())
-            .build();
-    }
-
-    #[inline]
-    fn set_table(&mut self, level: FaultLevel) -> &mut [Self; ENTRY_COUNT] {
-        unsafe {
-            if self.table.valid() == 0 {
-                let next = Vm::alloc(PAGE_SIZE);
-                Vm::map(next, PAGE_SIZE, Protection::RW);
-                self.table = TableDescriptor::new(next.as_u64() / (PAGE_SIZE as u64));
-                next.as_mut()
-            } else {
-                assert!(self.table.ty() == 1, "invalid {level:?} table descriptor");
-                self.table_mut_unchecked()
-            }
-        }
-    }
-}
-
-impl Entry {
-    #[inline]
-    fn try_as_page(&self) -> PageResult<PageDescriptor> {
+    fn page_mut(&mut self) -> Option<&mut PageDescriptor> {
         unsafe {
             if self.page.valid() == 1 {
                 assert!(self.page.ty() == 1, "invalid L3 page entry");
-                Ok(self.page)
+                Some(&mut self.page)
             } else {
-                Err(PageFault::enomem(FaultLevel::L3))
+                None
             }
         }
     }
 
-    #[inline]
-    fn try_as_table(&self, level: FaultLevel) -> PageResult<&[Self; ENTRY_COUNT]> {
-        unsafe {
-            if self.table.valid() == 1 {
-                assert!(self.table.ty() == 1, "invalid {level:?} table descriptor");
-                Ok(self.table_unchecked())
-            } else {
-                Err(PageFault::enomem(level))
-            }
-        }
-    }
-}
-
-impl Entry {
     #[inline]
     fn table_mut(&mut self) -> Option<&mut [Self; ENTRY_COUNT]> {
         unsafe {
@@ -300,69 +243,45 @@ impl Entry {
     }
 }
 
-const ENTRY_SIZE: usize = std::mem::size_of::<Entry>();
-const ENTRY_COUNT: usize = PAGE_SIZE / ENTRY_SIZE;
-
-pub type PageUnit = PageResult<()>;
-pub type PageResult<T> = Result<T, PageFault>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FaultLevel {
-    L1,
-    L2,
-    L3,
-}
-
-#[derive(Debug)]
-pub struct PageFault {
-    pub error: IoError,
-    pub level: FaultLevel,
-}
-
-impl PageFault {
+impl Entry {
     #[inline]
-    fn new(code: i32, level: FaultLevel) -> Self {
-        Self {
-            error: IoError::from_raw_os_error(code),
-            level,
+    fn set_page(&mut self, phys: Uintptr, prot: Protection, max_prot: Protection) {
+        self.page = PageDescriptor::builder()
+            .valid(1)
+            .ty(1)
+            .AttrIndx(0)
+            .NS(1)
+            .AP(prot.ap())
+            .SH(0b11)
+            .AF(1)
+            .nG(0)
+            .phys_addr(phys.as_u64() / (PAGE_SIZE as u64))
+            .DBM(0)
+            .Contig(0)
+            .PXN(prot.nx())
+            .UXN(prot.nx())
+            .user_data(max_prot.bits())
+            .build();
+    }
+
+    #[inline]
+    fn set_table(&mut self) -> &mut [Self; ENTRY_COUNT] {
+        unsafe {
+            if self.table.valid() == 0 {
+                let next = Vm::alloc(PAGE_SIZE);
+                Vm::map(next, PAGE_SIZE, Protection::RW);
+                self.table = TableDescriptor::new(next.as_u64() / (PAGE_SIZE as u64));
+                next.as_mut()
+            } else {
+                assert!(self.table.ty() == 1, "invalid table descriptor");
+                self.table_mut_unchecked()
+            }
         }
     }
-
-    #[inline]
-    fn eacces(level: FaultLevel) -> Self {
-        Self::new(libc::EACCES, level)
-    }
-
-    #[inline]
-    fn enomem(level: FaultLevel) -> Self {
-        Self::new(libc::ENOMEM, level)
-    }
 }
 
-impl Error for PageFault {
-    #[inline]
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(&self.error)
-    }
-
-    #[inline]
-    fn provide<'a>(&'a self, req: &mut ErrorRequest<'a>) {
-        req.provide_ref(&self.error);
-    }
-}
-
-impl Display for PageFault {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "page fault at level {:?}: {}", self.level, self.error)
-    }
-}
-
-impl From<PageFault> for IoError {
-    #[inline]
-    fn from(error: PageFault) -> Self {
-        error.error
-    }
-}
+const ENTRY_SIZE: usize = std::mem::size_of::<Entry>();
+const ENTRY_COUNT: usize = PAGE_SIZE / ENTRY_SIZE;
 
 #[repr(transparent)]
 pub struct PageTable([Entry; ENTRY_COUNT]);
@@ -377,12 +296,30 @@ impl PageTable {
 }
 
 impl PageTable {
-    #[inline]
-    fn page_of(&self, addr: Uintptr) -> Result<PageDescriptor, PageFault> {
-        let (l1, l2, l3) = Self::index(addr);
-        let next = self.0[l1].try_as_table(FaultLevel::L1)?;
-        let next = next[l2].try_as_table(FaultLevel::L2)?;
-        next[l3].try_as_page()
+    fn walk_pages_mut(&mut self, addr: Uintptr, num_pages: usize, mut f: impl FnMut(&mut [Entry])) {
+        let (p1, p2, p3) = Self::index(addr + num_pages * PAGE_SIZE - 1);
+        let (mut l1, mut l2, mut l3) = Self::index(addr);
+
+        /* unset all pages */
+        while l1 <= p1 && l2 <= p2 && l3 <= p3 {
+            if let Some(t1) = self.0[l1].table_mut() {
+                if let Some(t2) = t1[l2].table_mut() {
+                    if l1 == p1 && l2 == p2 {
+                        f(&mut t2[l3..=p3]);
+                    } else {
+                        f(&mut t2[l3..]);
+                    }
+                }
+                l2 += 1;
+                l1 += l2 / ENTRY_COUNT;
+                l2 %= ENTRY_COUNT;
+                l3 = 0;
+            } else {
+                l1 += 1;
+                l2 = 0;
+                l3 = 0;
+            }
+        }
     }
 }
 
@@ -399,64 +336,25 @@ impl PageTable {
 impl PageTable {
     pub fn set(&mut self, addr: Uintptr, prot: Protection, max_prot: Protection) {
         let (l1, l2, l3) = Self::index(addr);
-        let next = self.0[l1].set_table(FaultLevel::L1);
-        let next = next[l2].set_table(FaultLevel::L2);
+        let next = self.0[l1].set_table();
+        let next = next[l2].set_table();
         next[l3].set_page(addr, prot, max_prot);
     }
 
     pub fn unset(&mut self, addr: Uintptr, num_pages: usize) {
-        let (p1, p2, p3) = Self::index(addr + num_pages * PAGE_SIZE - 1);
-        let (mut l1, mut l2, mut l3) = Self::index(addr);
-
-        /* unset all pages */
-        while l1 <= p1 && l2 <= p2 && l3 <= p3 {
-            if let Some(t1) = self.0[l1].table_mut() {
-                if let Some(t2) = t1[l2].table_mut() {
-                    if l1 == p1 && l2 == p2 {
-                        t2[l3..=p3].fill(Entry::INVALID);
-                    } else {
-                        t2[l3..].fill(Entry::INVALID);
-                    }
-                }
-                l2 += 1;
-                l1 += l2 / ENTRY_COUNT;
-                l2 %= ENTRY_COUNT;
-                l3 = 0;
-            } else {
-                l1 += 1;
-                l2 = 0;
-                l3 = 0;
-            }
-        }
+        self.walk_pages_mut(addr, num_pages, |entries| entries.fill(Entry::INVALID));
     }
 
-    pub fn protect(
-        &mut self,
-        mut addr: Uintptr,
-        num_pages: usize,
-        set_max: bool,
-        prot: Protection,
-    ) -> PageUnit {
-        for i in 0..num_pages {
-            self.page_of(addr + i * PAGE_SIZE)?;
-        }
-        for _ in 0..num_pages {
-            let page = unsafe {
-                let (l1, l2, l3) = Self::index(addr);
-                &mut self.0[l1].table_mut_unchecked()[l2].table_mut_unchecked()[l3].page
-            };
-            if prot.bits() & !page.user_data() != 0 {
-                return Err(PageFault::eacces(FaultLevel::L3));
+    pub fn protect(&mut self, addr: Uintptr, num_pages: usize, prot: Protection) {
+        self.walk_pages_mut(addr, num_pages, |entries| {
+            for entry in entries {
+                if let Some(page) = entry.page_mut() {
+                    page.set_AP(prot.ap());
+                    page.set_PXN(prot.nx());
+                    page.set_UXN(prot.nx());
+                }
             }
-            if set_max {
-                page.set_user_data(prot.bits());
-            }
-            page.set_AP(prot.ap());
-            page.set_PXN(prot.nx());
-            page.set_UXN(prot.nx());
-            addr += PAGE_SIZE as u64;
-        }
-        Ok(())
+        });
     }
 
     pub fn prefault(

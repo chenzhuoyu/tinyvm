@@ -107,6 +107,14 @@ impl MmioHandler for ObjectMap {
     }
 }
 
+fn sys_protect(addr: Uintptr, prot: Protection) -> IoResult<()> {
+    if unsafe { libc::mprotect(addr.as_ptr(), PAGE_SIZE, prot.bits() as i32) } != 0 {
+        Err(IoError::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
 fn map_regular(
     addr: Uintptr,
     size: usize,
@@ -120,14 +128,8 @@ fn map_regular(
             mem => Uintptr::from(mem),
         }
     };
-    if let Err(err) = VmMap::map(VmKind::Regular, addr, size, prot, Protection::all()) {
-        unsafe {
-            libc::munmap(addr.as_ptr(), size);
-            Err(err)
-        }
-    } else {
-        Ok(addr)
-    }
+    VmMap::map(VmKind::Regular, addr, size, prot, Protection::all(), false);
+    Ok(addr)
 }
 
 fn map_from_file(
@@ -154,21 +156,15 @@ fn map_from_file(
     if addr.as_ptr() == libc::MAP_FAILED {
         return Err(IoError::last_os_error());
     }
-    let ret = VmMap::map(
+    VmMap::map(
         FileMap::new(addr, fd, flags, offset),
         addr,
         size,
         prot,
         Protection::all(),
+        false,
     );
-    if let Err(err) = ret {
-        unsafe {
-            libc::munmap(addr.as_ptr(), size);
-            Err(err)
-        }
-    } else {
-        Ok(addr)
-    }
+    Ok(addr)
 }
 
 fn map_from_object(
@@ -192,21 +188,15 @@ fn map_from_object(
     if addr.as_ptr() == libc::MAP_FAILED {
         return Err(IoError::last_os_error());
     }
-    let ret = VmMap::map(
+    VmMap::map(
         ObjectMap::map(addr, size),
         addr,
         size,
         prot,
         Protection::all(),
+        false,
     );
-    if let Err(err) = ret {
-        unsafe {
-            libc::munmap(addr.as_ptr(), size);
-            Err(err)
-        }
-    } else {
-        Ok(addr)
-    }
+    Ok(addr)
 }
 
 pub fn msync(_cpu: &Cpu, addr: Uintptr, len: usize, flags: i32) -> IoResult<()> {
@@ -214,7 +204,7 @@ pub fn msync(_cpu: &Cpu, addr: Uintptr, len: usize, flags: i32) -> IoResult<()> 
 }
 
 pub fn munmap(cpu: &Cpu, addr: Uintptr, len: usize) -> IoResult<()> {
-    VmMap::unmap(addr, len)?;
+    VmMap::unmap(addr, len);
     cpu.flush_tlb(addr, len.div_ceil(PAGE_SIZE));
 
     /* actually remove from host address space */
@@ -227,6 +217,7 @@ pub fn munmap(cpu: &Cpu, addr: Uintptr, len: usize) -> IoResult<()> {
 
 pub fn mprotect(cpu: &Cpu, addr: Uintptr, len: usize, raw_prot: i32) -> IoResult<()> {
     if let Some(prot) = Protection::from_bits(raw_prot as u64) {
+        sys_protect(addr, prot & !Protection::EXEC)?;
         VmMap::protect(cpu, addr, len, prot, false)
     } else {
         Err(IoError::from_raw_os_error(libc::EINVAL))

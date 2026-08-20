@@ -36,26 +36,14 @@ pub fn _kernelrpc_mach_vm_allocate_trap(
         return result;
     }
 
-    /* insert into guest address space and page table */
-    let ret = unsafe {
-        VmMap::map(
-            VmKind::Regular,
-            Uintptr::from(*args.addr),
-            align_to_page(args.size as usize),
-            Protection::RW,
-            Protection::all(),
-        )
-    };
+    /* get the allocated address */
+    let size = args.size as usize;
+    let addr = unsafe { Uintptr::from(*args.addr) };
+    let prot = Protection::RW;
 
-    /* deallocate memory if map failed */
-    if let Err(err) = ret {
-        unsafe {
-            mach_vm_deallocate(args.target, *args.addr, args.size);
-            err.as_kern_return()
-        }
-    } else {
-        KERN_SUCCESS
-    }
+    /* insert into VM map */
+    VmMap::map(VmKind::Regular, addr, size, prot, Protection::all(), false);
+    KERN_SUCCESS
 }
 
 pub fn _kernelrpc_mach_vm_deallocate_trap(
@@ -63,9 +51,7 @@ pub fn _kernelrpc_mach_vm_deallocate_trap(
     args: ARG__kernelrpc_mach_vm_deallocate_trap,
 ) -> kern_return_t {
     if args.target == *TASK_SELF {
-        if let Err(err) = VmMap::unmap(args.address, args.size as usize) {
-            return err.as_kern_return();
-        }
+        VmMap::unmap(args.address, args.size as usize);
         cpu.flush_tlb(args.address, (args.size as usize).div_ceil(PAGE_SIZE));
     }
     unsafe { mach_vm_deallocate(args.target, args.address.as_u64(), args.size) }
@@ -155,24 +141,11 @@ pub fn _kernelrpc_mach_vm_map_trap(
     set_prot!(prot, VM_PROT_WRITE, WRITE);
     set_prot!(prot, VM_PROT_EXECUTE, EXEC);
 
-    /* insert into page table */
-    let ret = unsafe {
-        VmMap::map(
-            VmKind::Regular,
-            Uintptr::from(*args.address),
-            align_to_page(args.size as usize),
-            prot,
-            Protection::all(),
-        )
-    };
+    /* get the allocated address */
+    let size = args.size as usize;
+    let addr = unsafe { Uintptr::from(*args.address) };
 
-    /* unmap the memory on page table failure */
-    if let Err(err) = ret {
-        unsafe {
-            mach_vm_deallocate(args.target, *args.address, args.size);
-            err.as_kern_return()
-        }
-    } else {
-        KERN_SUCCESS
-    }
+    /* insert into page table */
+    VmMap::map(VmKind::Regular, addr, size, prot, Protection::all(), false);
+    KERN_SUCCESS
 }

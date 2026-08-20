@@ -1,10 +1,18 @@
-use std::io::{ErrorKind, Read, Result as IoResult, Seek, SeekFrom};
+use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Seek, SeekFrom};
 
 use crate::{
     aarch64::{disasm::disasm, paging::PAGE_SIZE, vm::Vm},
     mem::Protection,
     utils::ptr::Uintptr,
 };
+
+fn set_prot(addr: Uintptr, prot: Protection) -> IoResult<()> {
+    if unsafe { libc::mprotect(addr.as_ptr(), PAGE_SIZE, prot.bits() as i32) } != 0 {
+        Err(IoError::last_os_error())
+    } else {
+        Ok(())
+    }
+}
 
 fn do_fetch_page<F: Read + Seek>(
     addr: Uintptr,
@@ -24,6 +32,7 @@ fn do_fetch_page<F: Read + Seek>(
 
     /* seek to the specified location */
     let mut page = {
+        set_prot(base, Protection::WRITE)?;
         file.seek(SeekFrom::Start((offset + dist) as u64))?;
         base.as_mut::<[u8; PAGE_SIZE]>().as_mut_slice()
     };
@@ -38,9 +47,8 @@ fn do_fetch_page<F: Read + Seek>(
         }
     }
 
-    // FIXME: it may need page table invalidations here
     /* map the loaded page into guest space */
-    // VmMap::protect(cpu, base, PAGE_SIZE, prot, false)?;
+    set_prot(base, prot & !Protection::EXEC)?;
     Vm::map(base, PAGE_SIZE, prot);
     Ok(())
 }

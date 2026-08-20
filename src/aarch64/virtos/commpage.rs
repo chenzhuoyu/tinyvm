@@ -37,7 +37,7 @@ fn handle_commpage(pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
 }
 
 pub(super) fn init() {
-    VmMap::insert(
+    VmMap::map(
         handle_commpage,
         COMMPAGE_RO,
         PAGE_SIZE,
@@ -45,7 +45,7 @@ pub(super) fn init() {
         Protection::READ,
         true,
     );
-    VmMap::insert(
+    VmMap::map(
         handle_commpage,
         COMMPAGE_RW,
         PAGE_SIZE,

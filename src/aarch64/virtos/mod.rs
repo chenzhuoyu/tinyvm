@@ -79,7 +79,7 @@ pub fn init() {
     }
 
     /* insert IRQ stubs into the VM map */
-    mem::VmMap::insert(
+    mem::VmMap::map(
         mem::VmKind::Regular,
         IRQ_STUBS,
         size,
@@ -95,7 +95,7 @@ pub fn init() {
     );
 
     /* insert EL1 stack into the VM map */
-    mem::VmMap::insert(
+    mem::VmMap::map(
         mem::VmKind::Regular,
         base,
         PAGE_SIZE,

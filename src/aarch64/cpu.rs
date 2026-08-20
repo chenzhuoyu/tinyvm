@@ -98,7 +98,6 @@ impl Cpu {
         cpu.write_sys_reg(SysReg::SP_EL1, STACK_TOP.as_u64());
         cpu.write_sys_reg(SysReg::VBAR_EL1, IRQ_STUBS.as_u64());
         cpu.write_sys_reg(SysReg::CPACR_EL1, CPACR_FPEN);
-        cpu.write_sys_reg(SysReg::MDSCR_EL1, MDSCR_SS);
         cpu
     }
 }
@@ -126,6 +125,23 @@ impl Cpu {
     #[inline]
     pub fn write_sys_reg(&self, reg: SysReg, value: u64) {
         hv_call!(hv_vcpu_set_sys_reg(self.vcpu, reg.sys_reg(), value));
+    }
+}
+
+impl Cpu {
+    #[inline]
+    pub fn set_single_step(&self, is_enabled: bool) {
+        if is_enabled {
+            self.write_sys_reg(
+                SysReg::MDSCR_EL1,
+                self.read_sys_reg(SysReg::MDSCR_EL1) | MDSCR_SS,
+            );
+        } else {
+            self.write_sys_reg(
+                SysReg::MDSCR_EL1,
+                self.read_sys_reg(SysReg::MDSCR_EL1) & !MDSCR_SS,
+            );
+        }
     }
 }
 

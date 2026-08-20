@@ -67,7 +67,7 @@ def build(is_debug: bool, run_after_build: bool, args: list[str]):
 
     # run the binary if needed
     if run_after_build:
-        os.execvpe(executable, args, os.environ)
+        os.execve(executable, args, os.environ)
 
 match sys.argv[1:]:
     case ['run']                    : build(True, True, [])

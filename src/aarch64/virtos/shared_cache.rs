@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     fs::File,
     io::{Error as IoError, Result as IoResult},
     num::NonZeroU64,
@@ -111,13 +111,6 @@ struct CacheSlider {
 }
 
 impl CacheSlider {
-    #[inline(always)]
-    const fn page(addr: Uintptr) -> Uintptr {
-        Uintptr::new(addr.addr() & !(PAGE_SIZE - 1))
-    }
-}
-
-impl CacheSlider {
     #[inline]
     fn new(data: Uintptr, size: usize, slide: usize, page: SmallVec<[Arc<SliderPage>; 1]>) -> Self {
         Self {
@@ -217,17 +210,60 @@ impl CacheSlider {
 }
 
 #[derive(Debug)]
-struct Mappings {
-    file: usize,
+struct Mapping {
+    base: Uintptr,
+    file: Arc<Mutex<File>>,
     entry: shared_mapping_np,
     slider: Option<CacheSlider>,
 }
 
-#[derive(Debug)]
-struct SharedRegion {
-    start: Uintptr,
-    files: Vec<Mutex<File>>,
-    mappings: BTreeMap<Uintptr, Mappings>,
+impl Mapping {
+    fn sys_protect(addr: Uintptr, size: usize, prot: Protection) {
+        if unsafe { libc::mprotect(addr.as_ptr(), size, prot.bits() as i32) } != 0 {
+            panic!("cannot protect mappings: {}", IoError::last_os_error());
+        }
+    }
+}
+
+impl MmioHandler for Mapping {
+    fn handle(&self, pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
+        assert!(
+            req.addr < self.base + self.entry.sms_size,
+            "MMIO address {addr:p} landed in gaps between regions \
+             {base:p}-{next:p}\nInstruction:\n  {insn}",
+            addr = req.addr,
+            base = self.base,
+            next = self.base + self.entry.sms_size,
+            insn = disasm(pc),
+        );
+        if self.entry.sms_max_prot & VM_PROT_ZF != 0 {
+            unimplemented!("VM_PROT_ZF for shared cache mappings");
+        }
+        // TODO: enable these
+        let prot = {
+            if self.slider.is_none() {
+                VmMap::lookup(req.addr)
+            } else {
+                Protection::RW
+            }
+        };
+        faults::fetch_page(
+            pc,
+            req.addr,
+            self.base,
+            prot,
+            &mut *self.file.lock(),
+            self.entry.sms_file_offset as usize,
+        );
+        if let Some(slider) = self.slider.as_ref() {
+            let page = req.addr.align_down(PAGE_SIZE);
+            let prot = VmMap::lookup(page);
+            slider.slide(pc, page, self.base);
+            Self::sys_protect(page, PAGE_SIZE, prot & !Protection::EXEC);
+            Vm::protect(page, PAGE_SIZE, prot);
+        }
+        MmioResponse::Retry
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -240,7 +276,7 @@ struct SharedRegionData {
 impl SharedRegionData {
     fn remove(&mut self) {
         if !self.addr.is_nil() {
-            Vm::unmap(self.addr, self.size);
+            VmMap::unmap(self.addr, self.size);
             Vm::dealloc(self.addr, self.size);
         }
     }
@@ -248,7 +284,7 @@ impl SharedRegionData {
     fn replace(&mut self, addr: Uintptr, size: usize) {
         self.remove();
         self.addr = addr;
-        self.size = size;
+        self.size = align_to_page(size);
     }
 }
 
@@ -259,59 +295,6 @@ static SHARED_REGION: RwLock<SharedRegionData> = {
         seal: false,
     })
 };
-
-impl SharedRegion {
-    fn protect(&self, cpu: &Cpu, addr: Uintptr) -> IoResult<()> {
-        VmMap::protect(
-            cpu,
-            CacheSlider::page(addr),
-            PAGE_SIZE,
-            VmMap::lookup(addr),
-            false,
-        )
-    }
-}
-
-impl MmioHandler for SharedRegion {
-    fn handle(&self, pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
-        let (&base, map) = self
-            .mappings
-            .range(..=req.addr)
-            .next_back()
-            .unwrap_or_else(|| panic!("unmapped region at {p:p}: PC={pc:p}", p = req.addr));
-        assert!(
-            req.addr < base + map.entry.sms_size,
-            "MMIO address {addr:p} landed in gaps between regions \
-             {base:p}-{next:p}\nInstruction:\n  {insn}",
-            addr = req.addr,
-            next = base + map.entry.sms_size,
-            insn = disasm(pc),
-        );
-        if map.entry.sms_max_prot & VM_PROT_ZF != 0 {
-            unimplemented!("VM_PROT_ZF for shared cache mappings");
-        }
-        let prot = {
-            if map.slider.is_none() {
-                VmMap::lookup(req.addr)
-            } else {
-                Protection::RW
-            }
-        };
-        faults::fetch_page(
-            pc,
-            req.addr,
-            base,
-            prot,
-            &mut *self.files[map.file].lock(),
-            map.entry.sms_file_offset as usize,
-        );
-        if let Some(slider) = map.slider.as_ref() {
-            slider.slide(pc, CacheSlider::page(req.addr), base);
-            // self.protect(cpu, req.addr).expect("cannot protect memory");
-        }
-        MmioResponse::Retry
-    }
-}
 
 #[inline]
 fn mkslice<T>(data: *const T, len: u32) -> &'static [T] {
@@ -334,13 +317,12 @@ pub fn shared_region_check_np(_cpu: &Cpu, addr: *mut u64) -> IoResult<()> {
 }
 
 pub fn shared_region_map_and_slide_2_np(
-    cpu: &Cpu,
+    _cpu: &Cpu,
     files_count: u32,
     files: *mut shared_file_np,
     mappings_count: u32,
     mappings_u: *mut shared_mapping_np,
 ) -> IoResult<()> {
-    todo!();
     let mut max_virt = 0usize;
     let mut min_virt = usize::MAX;
 
@@ -360,13 +342,6 @@ pub fn shared_region_map_and_slide_2_np(
             return Err(IoError::from_raw_os_error(libc::EINVAL));
         }
     }
-
-    /* create a new shared region */
-    let mut region = SharedRegion {
-        start: Uintptr::NIL,
-        files: Vec::with_capacity(files.len()),
-        mappings: BTreeMap::new(),
-    };
 
     /* calculate virtual address range, while validating the input */
     for map in mappings {
@@ -394,13 +369,6 @@ pub fn shared_region_map_and_slide_2_np(
     let block = Vm::alloc(align_to_page(max_virt - min_virt));
     let slide = block.addr().wrapping_sub(min_virt);
 
-    /* get the address and size of the memory block */
-    let size = align_to_page(max_virt - min_virt);
-
-    /* register the shared region */
-    region.start = block;
-    shared_data.replace(block, size);
-
     /* iterate over mappings */
     let mut pages = HashMap::new();
     let mut miter = mappings.iter().copied();
@@ -426,52 +394,59 @@ pub fn shared_region_map_and_slide_2_np(
             return Err(IoError::from_raw_os_error(libc::EINVAL));
         }
 
+        /* add the file if needed */
+        let file = unsafe {
+            if fd != -1 {
+                let fd = OwnedFd::from_raw_fd(libc::dup(fd));
+                Some(Arc::new(Mutex::new(File::from(fd))))
+            } else {
+                None
+            }
+        };
+
         /* process each mappings */
         for _ in 0..num_mappings {
             let item = miter.next().expect("no more mappings");
-            let prot = Protection::from_bits_truncate(item.sms_init_prot as u64);
             let addr = item.sms_address + slide;
             let size = item.sms_size as usize;
 
-            /* add to guest page table */
-            VmMap::map(
-                VmKind::Regular,
-                addr,
-                size,
-                prot,
-                Protection::from_bits_truncate(item.sms_max_prot as u64),
-            );
+            /* calculate protection bits */
+            let prot = Protection::from_bits_truncate(item.sms_init_prot as u64);
+            let max_prot = Protection::from_bits_truncate(item.sms_max_prot as u64);
 
             /* we need to load the page immediately if map from self */
-            if fd == -1 {
+            let Some(file) = file.clone() else {
                 if is_page_aligned(size) && addr.is_aligned_to(PAGE_SIZE) {
                     unsafe {
                         let src = item.sms_file_offset as *const u8;
                         std::ptr::copy_nonoverlapping(src, addr.as_ptr(), size);
-                        Vm::map(addr, size, prot);
+                        Mapping::sys_protect(addr, size, prot & !Protection::EXEC);
+                        VmMap::map(VmKind::Regular, addr, size, prot, max_prot, true);
                         continue;
                     }
                 } else {
                     return Err(IoError::from_raw_os_error(libc::EINVAL));
                 }
-            }
+            };
 
             /* create the cache slider, if needed */
             let slider = {
                 if item.sms_max_prot & VM_PROT_SLIDE != 0 {
                     let ptr = item.sms_slide_start + slide;
-                    let end = CacheSlider::page(ptr + item.sms_slide_size - 1);
-                    let mut pos = CacheSlider::page(ptr);
+                    let end = (ptr + (item.sms_slide_size - 1)).align_down(PAGE_SIZE);
+
+                    /* allocate space for slider pages */
+                    let mut addr = ptr.align_down(PAGE_SIZE);
                     let mut page = SmallVec::new();
 
                     /* collect all slider info pages */
-                    while pos <= end {
+                    while addr <= end {
                         let item = pages
-                            .entry(pos)
+                            .entry(addr)
                             .or_insert_with_key(|&addr| SliderPage::new(addr))
                             .clone();
                         page.push(item);
-                        pos += PAGE_SIZE;
+                        addr += PAGE_SIZE;
                     }
 
                     /* create the slider */
@@ -486,25 +461,26 @@ pub fn shared_region_map_and_slide_2_np(
                 }
             };
 
-            /* register the mapping into shared region */
-            region.mappings.insert(addr, {
-                Mappings {
-                    file: region.files.len(),
+            /* register the mapping into VM map */
+            VmMap::map(
+                Mapping {
+                    base: addr,
+                    file,
                     entry: item,
                     slider,
-                }
-            });
-        }
-
-        /* add the file if needed */
-        if fd != -1 {
-            let fd = unsafe { OwnedFd::from_raw_fd(libc::dup(fd)) };
-            region.files.push(Mutex::new(File::from(fd)));
+                },
+                addr,
+                size,
+                prot,
+                max_prot,
+                true,
+            );
         }
     }
 
-    /* check the mappings count */
+    /* register the shared region */
     assert!(miter.next().is_none(), "excessive mappings");
+    shared_data.replace(block, max_virt - min_virt);
     Ok(())
 }
 
