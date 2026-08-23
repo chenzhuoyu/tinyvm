@@ -10,7 +10,7 @@ PRELUDE = r'''#![allow(dead_code)]
 
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 
-use crate::utils::ptr::Uintptr;
+use crate::{macros::define_bit_field, utils::ptr::Uintptr};
 
 pub type mach_msg_priority_t = u32;
 pub type mach_port_flavor_t = i32;
@@ -119,6 +119,13 @@ impl mach_msg_option64_t {
     };
 }
 
+define_bit_field! {
+    pub struct mach_msg_packed32_t : u64 {
+        lsb: 32,
+        msb: 32,
+    }
+}
+
 trait Arg {
     fn decode(args: &[u64; 9]) -> Self;
 }
@@ -135,6 +142,7 @@ TYPE_MAP = {
     'mach_msg_id_t'                        : 'mach2::message::mach_msg_id_t',
     'mach_msg_option_t'                    : 'mach2::message::mach_msg_option_t',
     'mach_msg_option64_t'                  : 'mach_msg_option64_t',
+    'mach_msg_packed32_t'                  : 'mach_msg_packed32_t',
     'mach_msg_priority_t'                  : 'mach_msg_priority_t',
     'mach_msg_return_t'                    : 'mach2::message::mach_msg_return_t',
     'mach_msg_size_t'                      : 'mach2::message::mach_msg_size_t',
@@ -165,6 +173,19 @@ TYPE_MAP = {
     'vm_prot_t'                            : 'mach2::vm_prot::vm_prot_t',
     'vm_purgable_t'                        : 'mach2::vm_purgable::vm_purgable_t',
     'void'                                 : 'libc::c_void',
+}
+
+SHOW_AS_HEX = {
+    'mach_msg_option64_t',
+    'mach2::mach_types::ipc_space_t',
+    'mach2::message::mach_msg_option_t',
+    'mach2::port::mach_port_name_t',
+    'mach2::port::mach_port_t',
+    'mach2::port::mach_port_type_t',
+    'mach2::vm_prot::vm_prot_t',
+    'mach2::vm_types::mach_vm_offset_t',
+    'mach2::vm_types::mach_vm_size_t',
+    'u64',
 }
 
 RUST_RESERVED = {
@@ -232,7 +253,8 @@ class Arg:
         match self.rust_type:
             case 'u64'                 : return 1, f'args[{i}]'
             case 'Uintptr'             : return 1, f'Uintptr::from(args[{i}])'
-            case 'mach_msg_option64_t' : return 1, f'mach_msg_option64_t::from_bits(args[{i}]).expect("invalid options")'
+            case 'mach_msg_option64_t' : return 1, f'mach_msg_option64_t::from_bits_retain(args[{i}])'
+            case 'mach_msg_packed32_t' : return 1, f'mach_msg_packed32_t(args[{i}])'
             case ty                    : return 1, f'args[{i}] as {ty}'
 
 @dataclasses.dataclass
@@ -448,7 +470,8 @@ with open('src/aarch64/syscall/mach.rs', 'w') as fp:
 
             for i, arg in enumerate(trap.fn_sig):
                 prefix = ', ' if i else ''
-                print(f'{prefix}{arg.name}={{:?}}', end = '', file = fp)
+                fmtspec = '0x{:x}' if arg.rust_type in SHOW_AS_HEX else '{:?}'
+                print(f'{prefix}{arg.name}={fmtspec}', end = '', file = fp)
             else:
                 print('"', end = '', file = fp)
 

@@ -146,16 +146,37 @@ macro_rules! define_bit_field {
 
                 impl ::std::fmt::Debug for $name {
                     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                        f.debug_struct(stringify!($name))
-                        $(
-                            .field_with(stringify!($field), |f| {
-                                let value = self.$field();
-                                const BWIDTH: usize = $nbits;
-                                const HWIDTH: usize = BWIDTH.div_ceil(4);
-                                write!(f, "{value:0BWIDTH$b} (0x{value:0HWIDTH$x})")
-                            })
-                        )+
-                            .finish()
+                        if f.alternate() {
+                            f.debug_struct(stringify!($name))
+                                $(
+                                    .field_with(stringify!($field), |f| {
+                                        write!(
+                                            f,
+                                            "{value:0bwidth$b} (0x{value:0hwidth$x})",
+                                            value  = self.$field(),
+                                            bwidth = $nbits,
+                                            hwidth = usize::div_ceil($nbits, 4),
+                                        )
+                                    })
+                                )+
+                                .finish()
+                        } else {
+                            $({
+                                if ${index()} == 0 {
+                                    write!(f, concat!(stringify!($name), "("))?;
+                                } else {
+                                    write!(f, ",")?;
+                                }
+                                write!(
+                                    f,
+                                    concat!(stringify!($field), "=0x{value:0width$x}"),
+                                    value = self.$field(),
+                                    width = usize::div_ceil($nbits, 4),
+                                )?;
+                            })+
+                            write!(f, ")")?;
+                            Ok(())
+                        }
                     }
                 }
 

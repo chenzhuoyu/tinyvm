@@ -22,7 +22,6 @@ use crate::{
             task::TASK_SELF,
         },
     },
-    macros::define_bit_field,
     mem::Protection,
     utils::{ptr::Uintptr, size::align_to_page},
 };
@@ -34,32 +33,25 @@ const MACH_VM_MAP: u32 = 4811;
 const MACH_VM_REMAP: u32 = 4813;
 const MACH_VM_REMAP_NEW: u32 = 4821;
 
-define_bit_field! {
-    struct Packed32 : u64 {
-        lsb: 32,
-        msb: 32,
-    }
-}
-
 impl ARG_mach_msg2_trap {
     #[inline]
     const fn req_id(&self) -> u32 {
-        Packed32(self.msgh_voucher_and_id).msb() as u32
+        self.msgh_voucher_and_id.msb() as u32
     }
 
     #[inline]
     const fn recv_size(&self) -> usize {
-        Packed32(self.rcv_size_and_priority).lsb() as usize
+        self.rcv_size_and_priority.lsb() as usize
     }
 
     #[inline]
     const fn send_size(&self) -> usize {
-        Packed32(self.msgh_bits_and_send_size).msb() as usize
+        self.msgh_bits_and_send_size.msb() as usize
     }
 
     #[inline]
     const fn local_port(&self) -> mach_port_t {
-        Packed32(self.msgh_remote_and_local_port).msb() as mach_port_t
+        self.msgh_remote_and_local_port.msb() as mach_port_t
     }
 }
 
@@ -318,11 +310,11 @@ pub fn mach_msg2_trap(cpu: &Cpu, mut args: ARG_mach_msg2_trap) -> kern_return_t 
                     "svc #0x80",
                     inout("x0") args.data,
                     in("x1") args.options.bits(),
-                    in("x2") args.msgh_bits_and_send_size,
-                    in("x3") args.msgh_remote_and_local_port,
-                    in("x4") args.msgh_voucher_and_id,
-                    in("x5") args.desc_count_and_rcv_name,
-                    in("x6") args.rcv_size_and_priority,
+                    in("x2") args.msgh_bits_and_send_size.value(),
+                    in("x3") args.msgh_remote_and_local_port.value(),
+                    in("x4") args.msgh_voucher_and_id.value(),
+                    in("x5") args.desc_count_and_rcv_name.value(),
+                    in("x6") args.rcv_size_and_priority.value(),
                     in("x7") args.timeout,
                 );
             };

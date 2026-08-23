@@ -131,17 +131,6 @@ impl VmMap {
 }
 
 impl VmMap {
-    fn scan(&self, addr: Uintptr, size: usize) -> SmallVec<[Uintptr; 16]> {
-        self.maps
-            .range(..addr + size)
-            .rev()
-            .take_while(|&(.., r)| r.next > addr)
-            .map(|(&p, ..)| p)
-            .collect()
-    }
-}
-
-impl VmMap {
     fn map_range(
         &mut self,
         kind: VmKind,
@@ -163,6 +152,7 @@ impl VmMap {
         self.unmap_range(addr, size);
         region.map(addr);
         self.maps.insert(addr, region);
+        eprintln!("map(): {addr:p}-{end:p}", end = addr + size);
 
         /* prefault the pages if needed */
         if prefault {
@@ -171,7 +161,15 @@ impl VmMap {
     }
 
     fn unmap_range(&mut self, addr: Uintptr, size: usize) {
-        for base in self.scan(addr, size) {
+        eprintln!("unmap(): {addr:p}-{end:p}", end = addr + size);
+        let keys = self
+            .maps
+            .range(..addr + size)
+            .rev()
+            .take_while(|&(.., r)| r.next > addr)
+            .map(|(&p, ..)| p)
+            .collect::<SmallVec<[Uintptr; 16]>>();
+        for base in keys {
             let region = self
                 .maps
                 .remove(&base)
@@ -211,23 +209,89 @@ impl VmMap {
         prot: Protection,
         set_max: bool,
     ) -> IoResult<()> {
-        if let Some(region) = self.maps.get_mut(&addr)
-            && region.next == addr + size
-        {
-            if !prot.difference(region.max_prot).is_empty() {
-                return Err(IoError::from_raw_os_error(libc::EPERM));
+        let mut tlbi = false;
+        let mut iter = self.maps.range(..addr + size);
+        let mut rbuf = SmallVec::<[(Uintptr, VmRegion); 2]>::new();
+
+        /* get the first covered region, make sure the address range doesn't have trailing gaps */
+        let mut head = {
+            if let Some((&head, region)) = iter.next_back() {
+                if region.next < addr + size {
+                    return Err(IoError::from_raw_os_error(libc::ENOMEM));
+                } else {
+                    head
+                }
+            } else {
+                return Err(IoError::from_raw_os_error(libc::ENOMEM));
             }
-            if set_max {
-                region.max_prot = prot;
+        };
+
+        /* perform validations before actually make changes */
+        for (&base, region) in iter.rev() {
+            if region.next <= addr {
+                break;
+            }
+            if region.next != head {
+                return Err(IoError::from_raw_os_error(libc::ENOMEM));
+            }
+            if !prot.difference(region.max_prot).is_empty() {
+                return Err(IoError::from_raw_os_error(libc::EACCES));
+            }
+            head = base;
+        }
+
+        /* scan through the regions, split regions as needed */
+        for (&base, region) in self.maps.range_mut(head..addr + size).rev() {
+            if region.next <= addr {
+                break;
             }
             if region.populated {
-                self.page.protect(addr, size / PAGE_SIZE, prot);
-                cpu.flush_tlb(addr, size / PAGE_SIZE);
+                tlbi = true;
             }
-            region.prot = prot;
+            if addr + size < region.next {
+                let tail = VmRegion {
+                    kind: region.kind.clone(),
+                    next: region.next,
+                    prot: region.prot,
+                    max_prot: region.max_prot,
+                    populated: region.populated,
+                };
+                rbuf.push((addr + size, tail));
+                region.next = addr + size;
+            }
+            if base < addr {
+                let lead = VmRegion {
+                    kind: region.kind.clone(),
+                    next: region.next,
+                    prot,
+                    max_prot: if set_max { prot } else { region.max_prot },
+                    populated: region.populated,
+                };
+                rbuf.push((addr, lead));
+                region.next = addr;
+            } else {
+                if set_max {
+                    region.max_prot = prot;
+                }
+                region.prot = prot;
+                assert_eq!(addr, base);
+            }
+        }
+
+        /* handle block splitting */
+        for (base, region) in rbuf {
+            self.maps.insert(base, region);
+        }
+
+        /* check if we need to flush TLB */
+        if !tlbi {
             return Ok(());
         }
-        todo!()
+
+        /* modify page table, and flush the TLB */
+        self.page.protect(addr, size / PAGE_SIZE, prot);
+        cpu.flush_tlb(addr, size / PAGE_SIZE);
+        Ok(())
     }
 }
 
@@ -284,14 +348,27 @@ impl VmMap {
         max_prot: Protection,
         prefault: bool,
     ) {
-        VMM.lock()
-            .map_range(kind.into(), addr, size, prot, max_prot, prefault);
+        assert!(
+            addr.is_aligned_to(PAGE_SIZE),
+            "unaligned map base address: {addr:p}"
+        );
+        VMM.lock().map_range(
+            kind.into(),
+            addr,
+            align_to_page(size),
+            prot,
+            max_prot,
+            prefault,
+        );
     }
 
     #[inline]
     pub fn unmap(addr: Uintptr, size: usize) {
-        VMM.lock()
-            .unmap_range(addr.align_down(PAGE_SIZE), align_to_page(size));
+        assert!(
+            addr.is_aligned_to(PAGE_SIZE),
+            "unaligned unmap base address: {addr:p}"
+        );
+        VMM.lock().unmap_range(addr, align_to_page(size));
     }
 
     #[inline]
@@ -302,13 +379,12 @@ impl VmMap {
         prot: Protection,
         set_max: bool,
     ) -> IoResult<()> {
-        VMM.lock().protect_range(
-            cpu,
-            addr.align_down(PAGE_SIZE),
-            align_to_page(size),
-            prot,
-            set_max,
-        )
+        assert!(
+            addr.is_aligned_to(PAGE_SIZE),
+            "unaligned protect address: {addr:p}"
+        );
+        VMM.lock()
+            .protect_range(cpu, addr, align_to_page(size), prot, set_max)
     }
 }
 

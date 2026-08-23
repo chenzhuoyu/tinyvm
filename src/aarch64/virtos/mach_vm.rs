@@ -106,12 +106,13 @@ pub fn _kernelrpc_mach_vm_map_trap(
     }
 
     /* make a copy of the desired protection */
-    let mut prot = Protection::NONE;
-    let mut map_protection = args.cur_protection;
+    let mut map_prot = args.cur_protection;
+    let mut cur_prot = Protection::NONE;
+    let mut max_prot = Protection::NONE;
 
     /* never map as executable at host side when targeting self */
     if args.target == *TASK_SELF {
-        map_protection &= !VM_PROT_EXECUTE;
+        map_prot &= !VM_PROT_EXECUTE;
     }
 
     /* forward the syscall */
@@ -125,7 +126,7 @@ pub fn _kernelrpc_mach_vm_map_trap(
             MACH_PORT_NULL,
             0,
             0,
-            map_protection,
+            map_prot,
             VM_PROT_ALL,
             VM_INHERIT_DEFAULT,
         )
@@ -137,15 +138,20 @@ pub fn _kernelrpc_mach_vm_map_trap(
     }
 
     /* convert protection flags */
-    set_prot!(prot, VM_PROT_READ, READ);
-    set_prot!(prot, VM_PROT_WRITE, WRITE);
-    set_prot!(prot, VM_PROT_EXECUTE, EXEC);
+    set_prot!(cur_prot, VM_PROT_READ, READ);
+    set_prot!(cur_prot, VM_PROT_WRITE, WRITE);
+    set_prot!(cur_prot, VM_PROT_EXECUTE, EXEC);
+
+    /* convert max protection flags */
+    set_prot!(max_prot, VM_PROT_READ, READ);
+    set_prot!(max_prot, VM_PROT_WRITE, WRITE);
+    set_prot!(max_prot, VM_PROT_EXECUTE, EXEC);
 
     /* get the allocated address */
     let size = args.size as usize;
     let addr = unsafe { Uintptr::from(*args.address) };
 
     /* insert into page table */
-    VmMap::map(VmKind::Regular, addr, size, prot, Protection::all(), false);
+    VmMap::map(VmKind::Regular, addr, size, cur_prot, max_prot, false);
     KERN_SUCCESS
 }

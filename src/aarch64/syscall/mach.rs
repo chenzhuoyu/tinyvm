@@ -6,7 +6,7 @@
 
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 
-use crate::utils::ptr::Uintptr;
+use crate::{macros::define_bit_field, utils::ptr::Uintptr};
 
 pub type mach_msg_priority_t = u32;
 pub type mach_port_flavor_t = i32;
@@ -115,6 +115,13 @@ impl mach_msg_option64_t {
     };
 }
 
+define_bit_field! {
+    pub struct mach_msg_packed32_t : u64 {
+        lsb: 32,
+        msb: 32,
+    }
+}
+
 trait Arg {
     fn decode(args: &[u64; 9]) -> Self;
 }
@@ -144,7 +151,7 @@ impl Debug for ARG__kernelrpc_mach_vm_allocate_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, addr={:?}, size={:?}, flags={:?}",
+            "target=0x{:x}, addr={:?}, size=0x{:x}, flags={:?}",
             self.target, self.addr, self.size, self.flags
         )
     }
@@ -175,7 +182,7 @@ impl Debug for ARG__kernelrpc_mach_vm_purgable_control_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, address={:?}, control={:?}, state={:?}",
+            "target=0x{:x}, address=0x{:x}, control={:?}, state={:?}",
             self.target, self.address, self.control, self.state
         )
     }
@@ -204,7 +211,7 @@ impl Debug for ARG__kernelrpc_mach_vm_deallocate_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, address={:?}, size={:?}",
+            "target=0x{:x}, address={:?}, size=0x{:x}",
             self.target, self.address, self.size
         )
     }
@@ -264,7 +271,7 @@ impl Debug for ARG__kernelrpc_mach_vm_protect_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, address={:?}, size={:?}, set_maximum={:?}, new_protection={:?}",
+            "target=0x{:x}, address={:?}, size=0x{:x}, set_maximum={:?}, new_protection=0x{:x}",
             self.target, self.address, self.size, self.set_maximum, self.new_protection
         )
     }
@@ -299,7 +306,8 @@ impl Debug for ARG__kernelrpc_mach_vm_map_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, address={:?}, size={:?}, mask={:?}, flags={:?}, cur_protection={:?}",
+            "target=0x{:x}, address={:?}, size=0x{:x}, mask=0x{:x}, flags={:?}, \
+             cur_protection=0x{:x}",
             self.target, self.address, self.size, self.mask, self.flags, self.cur_protection
         )
     }
@@ -328,7 +336,7 @@ impl Debug for ARG__kernelrpc_mach_port_allocate_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, right={:?}, name={:?}",
+            "target=0x{:x}, right={:?}, name={:?}",
             self.target, self.right, self.name
         )
     }
@@ -353,7 +361,7 @@ impl Arg for ARG__kernelrpc_mach_port_deallocate_trap {
 impl Debug for ARG__kernelrpc_mach_port_deallocate_trap {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "target={:?}, name={:?}", self.target, self.name)
+        write!(f, "target=0x{:x}, name=0x{:x}", self.target, self.name)
     }
 }
 
@@ -382,7 +390,7 @@ impl Debug for ARG__kernelrpc_mach_port_mod_refs_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, name={:?}, right={:?}, delta={:?}",
+            "target=0x{:x}, name=0x{:x}, right={:?}, delta={:?}",
             self.target, self.name, self.right, self.delta
         )
     }
@@ -411,7 +419,7 @@ impl Debug for ARG__kernelrpc_mach_port_move_member_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, member={:?}, after={:?}",
+            "target=0x{:x}, member=0x{:x}, after=0x{:x}",
             self.target, self.member, self.after
         )
     }
@@ -442,7 +450,7 @@ impl Debug for ARG__kernelrpc_mach_port_insert_right_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, name={:?}, poly={:?}, polyPoly={:?}",
+            "target=0x{:x}, name=0x{:x}, poly=0x{:x}, polyPoly={:?}",
             self.target, self.name, self.poly, self.polyPoly
         )
     }
@@ -471,7 +479,7 @@ impl Debug for ARG__kernelrpc_mach_port_insert_member_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, name={:?}, pset={:?}",
+            "target=0x{:x}, name=0x{:x}, pset=0x{:x}",
             self.target, self.name, self.pset
         )
     }
@@ -500,7 +508,7 @@ impl Debug for ARG__kernelrpc_mach_port_extract_member_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, name={:?}, pset={:?}",
+            "target=0x{:x}, name=0x{:x}, pset=0x{:x}",
             self.target, self.name, self.pset
         )
     }
@@ -531,7 +539,7 @@ impl Debug for ARG__kernelrpc_mach_port_construct_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, options={:?}, context={:?}, name={:?}",
+            "target=0x{:x}, options={:?}, context=0x{:x}, name={:?}",
             self.target, self.options, self.context, self.name
         )
     }
@@ -562,7 +570,7 @@ impl Debug for ARG__kernelrpc_mach_port_destruct_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, name={:?}, srdelta={:?}, guard={:?}",
+            "target=0x{:x}, name=0x{:x}, srdelta={:?}, guard=0x{:x}",
             self.target, self.name, self.srdelta, self.guard
         )
     }
@@ -599,8 +607,8 @@ impl Debug for ARG_mach_msg_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "msg={:?}, option={:?}, send_size={:?}, rcv_size={:?}, rcv_name={:?}, timeout={:?}, \
-             notify={:?}",
+            "msg={:?}, option=0x{:x}, send_size={:?}, rcv_size={:?}, rcv_name=0x{:x}, \
+             timeout={:?}, notify=0x{:x}",
             self.msg,
             self.option,
             self.send_size,
@@ -647,8 +655,8 @@ impl Debug for ARG_mach_msg_overwrite_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "msg={:?}, option={:?}, send_size={:?}, rcv_size={:?}, rcv_name={:?}, timeout={:?}, \
-             priority={:?}, rcv_msg={:?}, rcv_limit={:?}",
+            "msg={:?}, option=0x{:x}, send_size={:?}, rcv_size={:?}, rcv_name=0x{:x}, \
+             timeout={:?}, priority={:?}, rcv_msg={:?}, rcv_limit={:?}",
             self.msg,
             self.option,
             self.send_size,
@@ -679,7 +687,7 @@ impl Arg for ARG_semaphore_signal_trap {
 impl Debug for ARG_semaphore_signal_trap {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "signal_name={:?}", self.signal_name)
+        write!(f, "signal_name=0x{:x}", self.signal_name)
     }
 }
 
@@ -700,7 +708,7 @@ impl Arg for ARG_semaphore_signal_all_trap {
 impl Debug for ARG_semaphore_signal_all_trap {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "signal_name={:?}", self.signal_name)
+        write!(f, "signal_name=0x{:x}", self.signal_name)
     }
 }
 
@@ -725,7 +733,7 @@ impl Debug for ARG_semaphore_signal_thread_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "signal_name={:?}, thread_name={:?}",
+            "signal_name=0x{:x}, thread_name=0x{:x}",
             self.signal_name, self.thread_name
         )
     }
@@ -748,7 +756,7 @@ impl Arg for ARG_semaphore_wait_trap {
 impl Debug for ARG_semaphore_wait_trap {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "wait_name={:?}", self.wait_name)
+        write!(f, "wait_name=0x{:x}", self.wait_name)
     }
 }
 
@@ -773,7 +781,7 @@ impl Debug for ARG_semaphore_wait_signal_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "wait_name={:?}, signal_name={:?}",
+            "wait_name=0x{:x}, signal_name=0x{:x}",
             self.wait_name, self.signal_name
         )
     }
@@ -802,7 +810,7 @@ impl Debug for ARG_semaphore_timedwait_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "wait_name={:?}, sec={:?}, nsec={:?}",
+            "wait_name=0x{:x}, sec={:?}, nsec={:?}",
             self.wait_name, self.sec, self.nsec
         )
     }
@@ -833,7 +841,7 @@ impl Debug for ARG_semaphore_timedwait_signal_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "wait_name={:?}, signal_name={:?}, sec={:?}, nsec={:?}",
+            "wait_name=0x{:x}, signal_name=0x{:x}, sec={:?}, nsec={:?}",
             self.wait_name, self.signal_name, self.sec, self.nsec
         )
     }
@@ -866,7 +874,7 @@ impl Debug for ARG__kernelrpc_mach_port_get_attributes_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, name={:?}, flavor={:?}, port_info_out={:?}, port_info_outCnt={:?}",
+            "target=0x{:x}, name=0x{:x}, flavor={:?}, port_info_out={:?}, port_info_outCnt={:?}",
             self.target, self.name, self.flavor, self.port_info_out, self.port_info_outCnt
         )
     }
@@ -897,7 +905,7 @@ impl Debug for ARG__kernelrpc_mach_port_guard_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, name={:?}, guard={:?}, strict={:?}",
+            "target=0x{:x}, name=0x{:x}, guard=0x{:x}, strict={:?}",
             self.target, self.name, self.guard, self.strict
         )
     }
@@ -926,7 +934,7 @@ impl Debug for ARG__kernelrpc_mach_port_unguard_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, name={:?}, guard={:?}",
+            "target=0x{:x}, name=0x{:x}, guard=0x{:x}",
             self.target, self.name, self.guard
         )
     }
@@ -955,7 +963,7 @@ impl Debug for ARG_mach_generate_activity_id {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target={:?}, count={:?}, activity_id={:?}",
+            "target=0x{:x}, count={:?}, activity_id={:?}",
             self.target, self.count, self.activity_id
         )
     }
@@ -984,7 +992,7 @@ impl Debug for ARG_task_name_for_pid {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target_tport={:?}, pid={:?}, tn={:?}",
+            "target_tport=0x{:x}, pid={:?}, tn={:?}",
             self.target_tport, self.pid, self.tn
         )
     }
@@ -1013,7 +1021,7 @@ impl Debug for ARG_task_for_pid {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target_tport={:?}, pid={:?}, t={:?}",
+            "target_tport=0x{:x}, pid={:?}, t={:?}",
             self.target_tport, self.pid, self.t
         )
     }
@@ -1038,7 +1046,7 @@ impl Arg for ARG_pid_for_task {
 impl Debug for ARG_pid_for_task {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "t={:?}, x={:?}", self.t, self.x)
+        write!(f, "t=0x{:x}, x={:?}", self.t, self.x)
     }
 }
 
@@ -1046,11 +1054,11 @@ impl Debug for ARG_pid_for_task {
 pub struct ARG_mach_msg2_trap {
     pub data: *mut libc::c_void,
     pub options: mach_msg_option64_t,
-    pub msgh_bits_and_send_size: u64,
-    pub msgh_remote_and_local_port: u64,
-    pub msgh_voucher_and_id: u64,
-    pub desc_count_and_rcv_name: u64,
-    pub rcv_size_and_priority: u64,
+    pub msgh_bits_and_send_size: mach_msg_packed32_t,
+    pub msgh_remote_and_local_port: mach_msg_packed32_t,
+    pub msgh_voucher_and_id: mach_msg_packed32_t,
+    pub desc_count_and_rcv_name: mach_msg_packed32_t,
+    pub rcv_size_and_priority: mach_msg_packed32_t,
     pub timeout: u64,
 }
 
@@ -1059,12 +1067,12 @@ impl Arg for ARG_mach_msg2_trap {
     fn decode(args: &[u64; 9]) -> Self {
         Self {
             data: args[0] as *mut libc::c_void,
-            options: mach_msg_option64_t::from_bits(args[1]).expect("invalid options"),
-            msgh_bits_and_send_size: args[2],
-            msgh_remote_and_local_port: args[3],
-            msgh_voucher_and_id: args[4],
-            desc_count_and_rcv_name: args[5],
-            rcv_size_and_priority: args[6],
+            options: mach_msg_option64_t::from_bits_retain(args[1]),
+            msgh_bits_and_send_size: mach_msg_packed32_t(args[2]),
+            msgh_remote_and_local_port: mach_msg_packed32_t(args[3]),
+            msgh_voucher_and_id: mach_msg_packed32_t(args[4]),
+            desc_count_and_rcv_name: mach_msg_packed32_t(args[5]),
+            rcv_size_and_priority: mach_msg_packed32_t(args[6]),
             timeout: args[7],
         }
     }
@@ -1075,9 +1083,9 @@ impl Debug for ARG_mach_msg2_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "data={:?}, options={:?}, msgh_bits_and_send_size={:?}, \
+            "data={:?}, options=0x{:x}, msgh_bits_and_send_size={:?}, \
              msgh_remote_and_local_port={:?}, msgh_voucher_and_id={:?}, \
-             desc_count_and_rcv_name={:?}, rcv_size_and_priority={:?}, timeout={:?}",
+             desc_count_and_rcv_name={:?}, rcv_size_and_priority={:?}, timeout=0x{:x}",
             self.data,
             self.options,
             self.msgh_bits_and_send_size,
@@ -1115,7 +1123,7 @@ impl Debug for ARG_macx_swapon {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "filename={:?}, flags={:?}, size={:?}, priority={:?}",
+            "filename=0x{:x}, flags={:?}, size={:?}, priority={:?}",
             self.filename, self.flags, self.size, self.priority
         )
     }
@@ -1140,7 +1148,7 @@ impl Arg for ARG_macx_swapoff {
 impl Debug for ARG_macx_swapoff {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "filename={:?}, flags={:?}", self.filename, self.flags)
+        write!(f, "filename=0x{:x}, flags={:?}", self.filename, self.flags)
     }
 }
 
@@ -1169,7 +1177,7 @@ impl Debug for ARG_macx_triggers {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "hi_water={:?}, low_water={:?}, flags={:?}, alert_port={:?}",
+            "hi_water={:?}, low_water={:?}, flags={:?}, alert_port=0x{:x}",
             self.hi_water, self.low_water, self.flags, self.alert_port
         )
     }
@@ -1261,7 +1269,7 @@ impl Debug for ARG_thread_switch {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "thread_name={:?}, option={:?}, option_time={:?}",
+            "thread_name=0x{:x}, option={:?}, option_time={:?}",
             self.thread_name, self.option, self.option_time
         )
     }
@@ -1294,7 +1302,7 @@ impl Debug for ARG_clock_sleep_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "clock_name={:?}, sleep_type={:?}, sleep_sec={:?}, sleep_nsec={:?}, wakeup_time={:?}",
+            "clock_name=0x{:x}, sleep_type={:?}, sleep_sec={:?}, sleep_nsec={:?}, wakeup_time={:?}",
             self.clock_name, self.sleep_type, self.sleep_sec, self.sleep_nsec, self.wakeup_time
         )
     }
@@ -1321,7 +1329,7 @@ impl Debug for ARG_mach_vm_reclaim_update_kernel_accounting_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target_tport={:?}, bytes_reclaimed={:?}",
+            "target_tport=0x{:x}, bytes_reclaimed={:?}",
             self.target_tport, self.bytes_reclaimed
         )
     }
@@ -1352,7 +1360,7 @@ impl Debug for ARG_host_create_mach_voucher_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "host={:?}, recipes={:?}, recipes_size={:?}, voucher={:?}",
+            "host=0x{:x}, recipes={:?}, recipes_size={:?}, voucher={:?}",
             self.host, self.recipes, self.recipes_size, self.voucher
         )
     }
@@ -1383,7 +1391,7 @@ impl Debug for ARG_mach_voucher_extract_attr_recipe_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "voucher_name={:?}, key={:?}, recipe={:?}, recipe_size={:?}",
+            "voucher_name=0x{:x}, key={:?}, recipe={:?}, recipe_size={:?}",
             self.voucher_name, self.key, self.recipe, self.recipe_size
         )
     }
@@ -1412,7 +1420,7 @@ impl Debug for ARG__kernelrpc_mach_port_type_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "task={:?}, name={:?}, ptype={:?}",
+            "task=0x{:x}, name=0x{:x}, ptype={:?}",
             self.task, self.name, self.ptype
         )
     }
@@ -1449,7 +1457,7 @@ impl Debug for ARG__kernelrpc_mach_port_request_notification_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "task={:?}, name={:?}, msgid={:?}, sync={:?}, notify={:?}, notifyPoly={:?}, \
+            "task=0x{:x}, name=0x{:x}, msgid={:?}, sync={:?}, notify=0x{:x}, notifyPoly={:?}, \
              previous={:?}",
             self.task,
             self.name,
@@ -1485,7 +1493,7 @@ impl Debug for ARG_debug_control_port_for_pid {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "target_tport={:?}, pid={:?}, t={:?}",
+            "target_tport=0x{:x}, pid={:?}, t={:?}",
             self.target_tport, self.pid, self.t
         )
     }

@@ -107,11 +107,11 @@ extern mach_msg_return_t mach_msg_trap(
 extern mach_msg_return_t mach_msg2_trap(
 	void *data,
 	mach_msg_option64_t options,
-	uint64_t msgh_bits_and_send_size,
-	uint64_t msgh_remote_and_local_port,
-	uint64_t msgh_voucher_and_id,
-	uint64_t desc_count_and_rcv_name,
-	uint64_t rcv_size_and_priority,
+	mach_msg_packed32_t msgh_bits_and_send_size,
+	mach_msg_packed32_t msgh_remote_and_local_port,
+	mach_msg_packed32_t msgh_voucher_and_id,
+	mach_msg_packed32_t desc_count_and_rcv_name,
+	mach_msg_packed32_t rcv_size_and_priority,
 	uint64_t timeout);
 #endif
 
@@ -470,12 +470,12 @@ extern mach_msg_return_t mach_msg_overwrite_trap(
 struct mach_msg2_trap_args {
 	PAD_ARG_(mach_vm_address_t, data);
 	PAD_ARG_(mach_msg_option64_t, options);
-	PAD_ARG_(uint64_t, msgh_bits_and_send_size);
-	PAD_ARG_(uint64_t, msgh_remote_and_local_port);
-	PAD_ARG_(uint64_t, msgh_voucher_and_id);
-	PAD_ARG_(uint64_t, desc_count_and_rcv_name);
-	PAD_ARG_(uint64_t, rcv_size_and_priority);
-	PAD_ARG_(uint64_t, timeout);
+	PAD_ARG_(mach_msg_packed32_t, msgh_bits_and_send_size);
+	PAD_ARG_(mach_msg_packed32_t, msgh_remote_and_local_port);
+	PAD_ARG_(mach_msg_packed32_t, msgh_voucher_and_id);
+	PAD_ARG_(mach_msg_packed32_t, desc_count_and_rcv_name);
+	PAD_ARG_(mach_msg_packed32_t, rcv_size_and_priority);
+	PAD_ARG_(mach_msg_packed32_t, timeout);
 };
 
 extern mach_msg_return_t mach_msg2_trap(

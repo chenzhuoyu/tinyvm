@@ -3,6 +3,9 @@
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "rust-lang.rust-analyzer"
   },
+  "[cpp]": {
+    "editor.formatOnSave": false
+  },
   "rust-analyzer.cargo.extraEnv": {
     "__BUILD_WITH_SIGN": "yes",
   },
