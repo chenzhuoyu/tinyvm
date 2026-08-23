@@ -176,7 +176,6 @@ TYPE_MAP = {
 }
 
 SHOW_AS_HEX = {
-    'mach_msg_option64_t',
     'mach2::mach_types::ipc_space_t',
     'mach2::message::mach_msg_option_t',
     'mach2::port::mach_port_name_t',

@@ -1083,7 +1083,7 @@ impl Debug for ARG_mach_msg2_trap {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "data={:?}, options=0x{:x}, msgh_bits_and_send_size={:?}, \
+            "data={:?}, options={:?}, msgh_bits_and_send_size={:?}, \
              msgh_remote_and_local_port={:?}, msgh_voucher_and_id={:?}, \
              desc_count_and_rcv_name={:?}, rcv_size_and_priority={:?}, timeout=0x{:x}",
             self.data,
