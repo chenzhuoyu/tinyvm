@@ -2,7 +2,7 @@ use mach2::{
     kern_return::{KERN_INVALID_ARGUMENT, KERN_NOT_SUPPORTED, KERN_SUCCESS, kern_return_t},
     message::{
         MACH_MSG_TYPE_MOVE_SEND_ONCE, MACH_MSGH_BITS, mach_msg_body_t, mach_msg_header_t,
-        mach_msg_port_descriptor_t,
+        mach_msg_id_t, mach_msg_port_descriptor_t,
     },
     ndr::NDR_record_t,
     port::{MACH_PORT_NULL, mach_port_t},
@@ -69,20 +69,12 @@ struct mig_reply_error_t {
 }
 
 impl mig_reply_error_t {
-    fn new(id: i32, port: mach_port_t, status: kern_return_t) -> Self {
-        let header = mach_msg_header_t {
-            msgh_bits: MACH_MSGH_BITS(MACH_MSG_TYPE_MOVE_SEND_ONCE, 0),
-            msgh_size: std::mem::size_of::<Self>() as u32,
-            msgh_remote_port: 0,
-            msgh_local_port: port,
-            msgh_voucher_port: 0,
-            msgh_id: id + 100,
-        };
-        Self {
-            head: header,
+    fn reply(port: &Responder, status: kern_return_t) {
+        port.reply(Self {
             ndr: unsafe { mach2::ndr::NDR_record },
+            head: port.header::<Self>(),
             status,
-        }
+        });
     }
 }
 
@@ -129,21 +121,13 @@ struct mach_vm_allocate_or_map_reply {
 }
 
 impl mach_vm_allocate_or_map_reply {
-    fn new(id: i32, port: mach_port_t, addr: Uintptr) -> Self {
-        let header = mach_msg_header_t {
-            msgh_bits: MACH_MSGH_BITS(MACH_MSG_TYPE_MOVE_SEND_ONCE, 0),
-            msgh_size: std::mem::size_of::<Self>() as u32,
-            msgh_remote_port: 0,
-            msgh_local_port: port,
-            msgh_voucher_port: 0,
-            msgh_id: id + 100,
-        };
-        Self {
-            head: header,
+    fn reply(port: &Responder, addr: Uintptr) {
+        port.reply(Self {
             ndr: unsafe { mach2::ndr::NDR_record },
+            head: port.header::<Self>(),
             status: KERN_SUCCESS,
             address: addr,
-        }
+        });
     }
 }
 
@@ -160,15 +144,17 @@ struct Responder {
     size: usize,
     data: Uintptr,
     port: mach_port_t,
+    resp: mach_msg_id_t,
 }
 
 impl Responder {
     #[inline]
-    const fn new(port: mach_port_t, buffer: mach_msg_vector_t) -> Self {
+    const fn new(id: u32, port: mach_port_t, buffer: mach_msg_vector_t) -> Self {
         Self {
+            port,
             size: buffer.msgv_recv_size,
             data: buffer.msgv_recv_data,
-            port,
+            resp: (id as mach_msg_id_t) + 100,
         }
     }
 }
@@ -178,6 +164,20 @@ impl Responder {
     fn reply<R>(&self, data: R) {
         assert!(self.size >= std::mem::size_of::<R>());
         self.data.write(data);
+    }
+}
+
+impl Responder {
+    #[inline]
+    fn header<T>(&self) -> mach_msg_header_t {
+        mach_msg_header_t {
+            msgh_bits: MACH_MSGH_BITS(MACH_MSG_TYPE_MOVE_SEND_ONCE, 0),
+            msgh_size: std::mem::size_of::<T>() as u32,
+            msgh_remote_port: 0,
+            msgh_local_port: self.port,
+            msgh_voucher_port: 0,
+            msgh_id: self.resp,
+        }
     }
 }
 
@@ -204,14 +204,14 @@ fn parse_message<T: Copy>(args: &ARG_mach_msg2_trap) -> Option<(T, Responder)> {
     if buffer.msgv_send_size == std::mem::size_of::<T>() {
         Some((
             buffer.msgv_send_data.read(),
-            Responder::new(args.local_port(), buffer),
+            Responder::new(args.req_id(), args.local_port(), buffer),
         ))
     } else {
         None
     }
 }
 
-fn handle_mach_vm_map(_cpu: &Cpu, mut req: mach_vm_map_request, reply: Responder) -> kern_return_t {
+fn handle_mach_vm_map(_cpu: &Cpu, mut req: mach_vm_map_request, port: Responder) -> kern_return_t {
     macro_rules! set_prot {
         ($prot:ident, $flag:ident, $name:ident) => {
             if req.$prot & $flag != 0 {
@@ -221,7 +221,7 @@ fn handle_mach_vm_map(_cpu: &Cpu, mut req: mach_vm_map_request, reply: Responder
     }
 
     /* check if we have enough space for response */
-    if reply.size < std::mem::size_of::<mach_vm_allocate_or_map_reply>() {
+    if port.size < std::mem::size_of::<mach_vm_allocate_or_map_reply>() {
         return KERN_INVALID_ARGUMENT;
     }
 
@@ -255,7 +255,7 @@ fn handle_mach_vm_map(_cpu: &Cpu, mut req: mach_vm_map_request, reply: Responder
     }
 
     /* perform the actual memory map */
-    let result = unsafe {
+    let status = unsafe {
         mach_vm_map(
             *TASK_SELF,
             &raw mut addr,
@@ -272,8 +272,8 @@ fn handle_mach_vm_map(_cpu: &Cpu, mut req: mach_vm_map_request, reply: Responder
     };
 
     /* check if the syscall is successful */
-    if result != KERN_SUCCESS {
-        reply.reply(mig_reply_error_t::new(req.head.msgh_id, reply.port, result));
+    if status != KERN_SUCCESS {
+        mig_reply_error_t::reply(&port, status);
         return KERN_SUCCESS;
     }
 
@@ -287,12 +287,8 @@ fn handle_mach_vm_map(_cpu: &Cpu, mut req: mach_vm_map_request, reply: Responder
         false,
     );
 
-    /* construct the response */
-    let addr = Uintptr::from(addr);
-    let resp = mach_vm_allocate_or_map_reply::new(req.head.msgh_id, reply.port, addr);
-
     /* send the response */
-    reply.reply(resp);
+    mach_vm_allocate_or_map_reply::reply(&port, addr.into());
     KERN_SUCCESS
 }
 
@@ -320,8 +316,8 @@ pub fn mach_msg2_trap(cpu: &Cpu, mut args: ARG_mach_msg2_trap) -> kern_return_t 
         MACH_VM_MAP => {
             if !args.options.contains(mach_msg_option64_t::MACH64_RCV_MSG) {
                 KERN_INVALID_ARGUMENT
-            } else if let Some((req, reply)) = parse_message(&args) {
-                handle_mach_vm_map(cpu, req, reply)
+            } else if let Some((req, port)) = parse_message(&args) {
+                handle_mach_vm_map(cpu, req, port)
             } else {
                 KERN_INVALID_ARGUMENT
             }
@@ -332,6 +328,7 @@ pub fn mach_msg2_trap(cpu: &Cpu, mut args: ARG_mach_msg2_trap) -> kern_return_t 
         MACH_VM_REMAP_NEW => {
             unimplemented!("mach_vm_remap_new() through mach_msg2_trap()");
         }
+        // TODO: implement these
         MACH_VM_DEFERRED_RECLAMATION_BUFFER_ALLOCATE => KERN_NOT_SUPPORTED,
         MACH_VM_DEFERRED_RECLAMATION_BUFFER_FLUSH => KERN_NOT_SUPPORTED,
         MACH_VM_DEFERRED_RECLAMATION_BUFFER_RESIZE => KERN_NOT_SUPPORTED,
