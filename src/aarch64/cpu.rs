@@ -17,7 +17,7 @@ use crate::{
         },
     },
     hv_call,
-    utils::ptr::Uintptr,
+    utils::{ptr::Uintptr, str::Sz},
 };
 
 #[derive(Clone, Copy)]
@@ -167,6 +167,16 @@ impl Cpu {
                 let pc = Uintptr::from(self.read_reg(Reg::PC));
                 tracing::trace!("SINGLE_STEP: {}", disasm(pc));
                 self.write_reg(Reg::CPSR, self.read_reg(Reg::CPSR) | PSTATE_SS);
+            }
+            // TODO: remove this
+            Exception::AA64_BKPT => {
+                let msg = Uintptr::from(self.read_reg(Reg::PC)) + (0x1e9c37580u64 - 0x180324818u64);
+                let msg = msg.read::<Sz>();
+                eprintln!(
+                    "BREAKPOINT: {msg}\nInstruction:\n  {insn}\nException: {exc:#?}\n{self:#?}",
+                    insn = disasm(self.read_reg(Reg::PC))
+                );
+                std::intrinsics::breakpoint();
             }
             ec => {
                 panic!(

@@ -152,7 +152,6 @@ impl VmMap {
         self.unmap_range(addr, size);
         region.map(addr);
         self.maps.insert(addr, region);
-        eprintln!("map(): {addr:p}-{end:p}", end = addr + size);
 
         /* prefault the pages if needed */
         if prefault {
@@ -161,7 +160,6 @@ impl VmMap {
     }
 
     fn unmap_range(&mut self, addr: Uintptr, size: usize) {
-        eprintln!("unmap(): {addr:p}-{end:p}", end = addr + size);
         let keys = self
             .maps
             .range(..addr + size)

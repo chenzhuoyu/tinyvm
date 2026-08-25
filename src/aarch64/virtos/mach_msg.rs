@@ -9,6 +9,7 @@ use mach2::{
     vm::mach_vm_map,
     vm_inherit::VM_INHERIT_DEFAULT,
     vm_prot::{VM_PROT_ALL, VM_PROT_ALLEXEC, VM_PROT_EXECUTE, VM_PROT_READ, VM_PROT_WRITE},
+    vm_statistics::VM_FLAGS_ANYWHERE,
 };
 
 use crate::{
@@ -32,6 +33,10 @@ const MACH_VM_PROTECT: u32 = 4802;
 const MACH_VM_MAP: u32 = 4811;
 const MACH_VM_REMAP: u32 = 4813;
 const MACH_VM_REMAP_NEW: u32 = 4821;
+const MACH_VM_DEFERRED_RECLAMATION_BUFFER_ALLOCATE: u32 = 4822;
+const MACH_VM_DEFERRED_RECLAMATION_BUFFER_FLUSH: u32 = 4823;
+const MACH_VM_DEFERRED_RECLAMATION_BUFFER_RESIZE: u32 = 4826;
+const MACH_VM_DEFERRED_RECLAMATION_BUFFER_QUERY: u32 = 4828;
 
 impl ARG_mach_msg2_trap {
     #[inline]
@@ -97,6 +102,21 @@ struct mach_vm_map_request {
     cur_prot: i32,
     max_prot: i32,
     inheritance: u32,
+}
+
+impl mach_vm_map_request {
+    #[inline]
+    const fn hack_is_xzm_region_alloc(&self) -> bool {
+        self.address.addr() >= 0x400000000
+            && self.size == 0x600000000
+            && self.mask == 0
+            && self.flags == 0
+            && self.offset == 0
+            && self.copy == 0
+            && self.cur_prot == 0
+            && self.max_prot == 0
+            && self.inheritance == VM_INHERIT_DEFAULT
+    }
 }
 
 #[repr(C, packed)]
@@ -191,7 +211,7 @@ fn parse_message<T: Copy>(args: &ARG_mach_msg2_trap) -> Option<(T, Responder)> {
     }
 }
 
-fn handle_mach_vm_map(_cpu: &Cpu, req: mach_vm_map_request, reply: Responder) -> kern_return_t {
+fn handle_mach_vm_map(_cpu: &Cpu, mut req: mach_vm_map_request, reply: Responder) -> kern_return_t {
     macro_rules! set_prot {
         ($prot:ident, $flag:ident, $name:ident) => {
             if req.$prot & $flag != 0 {
@@ -223,6 +243,15 @@ fn handle_mach_vm_map(_cpu: &Cpu, req: mach_vm_map_request, reply: Responder) ->
     /* check if it's an object map */
     if req.object.name != 0 {
         unimplemented!("mach_vm_map() message with non-zero port");
+    }
+
+    // FIXME: this is a hack to get around the address space reservation for xzone malloc, to
+    // implement this correctly, we may need to implement full virtual address translation, and
+    // perform memory copy and / or address translation on every syscall boundary, rather than
+    // identity mapping (PA=IPA).
+    if req.hack_is_xzm_region_alloc() {
+        addr = 0;
+        req.flags |= VM_FLAGS_ANYWHERE;
     }
 
     /* perform the actual memory map */
@@ -303,6 +332,10 @@ pub fn mach_msg2_trap(cpu: &Cpu, mut args: ARG_mach_msg2_trap) -> kern_return_t 
         MACH_VM_REMAP_NEW => {
             unimplemented!("mach_vm_remap_new() through mach_msg2_trap()");
         }
+        MACH_VM_DEFERRED_RECLAMATION_BUFFER_ALLOCATE => KERN_NOT_SUPPORTED,
+        MACH_VM_DEFERRED_RECLAMATION_BUFFER_FLUSH => KERN_NOT_SUPPORTED,
+        MACH_VM_DEFERRED_RECLAMATION_BUFFER_RESIZE => KERN_NOT_SUPPORTED,
+        MACH_VM_DEFERRED_RECLAMATION_BUFFER_QUERY => KERN_NOT_SUPPORTED,
         _ => {
             unsafe {
                 std::arch::asm!(

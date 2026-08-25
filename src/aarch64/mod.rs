@@ -147,6 +147,7 @@ pub fn vm_exec() -> Unit {
         .end()
         .end()
         .add("executable_path=/bin/ls")
+        .add("malloc_entropy=0x1,0x2df")
         .add("ptr_munge=0x1")
         .end();
 
