@@ -1,5 +1,7 @@
 pub mod bsd;
+mod bsd_impl;
 pub mod mach;
+mod mach_impl;
 pub mod machdep;
 
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -113,17 +115,14 @@ impl<'p> Syscall<'p> {
         }
         ret
     }
-}
 
-impl Syscall<'_> {
     #[inline]
-    fn syscall(num: i64, args: &mut [u64; 9], nzcv: &mut u64) {
+    pub fn syscall(num: i64, args: &mut [u64; 9], nzcv: &mut u64) {
         unsafe {
             std::arch::asm!(
                 "svc #0x80",
                 "mrs {}, NZCV",
                 out(reg) *nzcv,
-                in("x16") num,
                 inout("x0") args[0],
                 inout("x1") args[1],
                 in("x2") args[2],
@@ -133,6 +132,7 @@ impl Syscall<'_> {
                 in("x6") args[6],
                 in("x7") args[7],
                 in("x8") args[8],
+                in("x16") num,
             );
         }
     }
@@ -162,71 +162,6 @@ impl Syscall<'_> {
 }
 
 impl Syscall<'_> {
-    fn dispatch_bsd(&mut self, bsd: BsdSyscall) {
-        mod impls {
-            pub(super) use crate::aarch64::virtos::{bsd_mman::*, shared_cache::*};
-        }
-        macro_rules! handle_syscall {
-            ($($name:ident $(($($field:ident),* $(,)?))?),+ $(,)?) => {
-                match bsd {
-                    $(
-                        handle_syscall!(@HANDLER $name args @($($($field),*)?)) => {
-                            match impls::$name(self.cpu, $($(args.$field),*)?) {
-                                Ok(ret) => self.bsd_result(ret),
-                                Err(err) => self.bsd_error(err.raw_os_error().unwrap_or(-1)),
-                            }
-                        }
-                    )*
-                    BsdSyscall::Unknown(..) => self.bsd_error(libc::ENOSYS),
-                    _ => self.forward(),
-                }
-            };
-            (@HANDLER $name:ident $args:ident @($($_:ident),+)) => { BsdSyscall::$name($args) };
-            (@HANDLER $name:ident $_:ident @()) => { BsdSyscall::$name };
-        }
-        handle_syscall! {
-            msync(addr, len, flags),
-            munmap(addr, len),
-            mprotect(addr, len, prot),
-            mmap(addr, len, prot, flags, fd, pos),
-            shared_region_check_np(start_address),
-            msync_nocancel(addr, len, flags),
-            shared_region_map_and_slide_2_np(files_count, files, mappings_count, mappings_u),
-            map_with_linking_np(regions, region_count, link_info, link_info_size)
-        }
-    }
-
-    fn dispatch_mach(&mut self, mach: MachTrap) {
-        mod impls {
-            pub(super) use crate::aarch64::virtos::{mach_msg::*, mach_vm::*, task::*};
-        }
-        macro_rules! handle_mach_trap {
-            ($($name:ident ($($args:ident)?)),+ $(,)?) => {
-                match mach {
-                    $(
-                        handle_mach_trap!(@HANDLER $name [$($args)?]) => {
-                            self.args[0] = impls::$name(self.cpu, $($args)?) as u64;
-                        }
-                    )*
-                    MachTrap::Unknown(..) => self.args[0] = libc::KERN_INVALID_ARGUMENT as u64,
-                    _ => self.forward(),
-                }
-            };
-            (@HANDLER $name:ident [$args:ident]) => { MachTrap::$name($args) };
-            (@HANDLER $name:ident []) => { MachTrap::$name };
-        }
-        handle_mach_trap! {
-            _kernelrpc_mach_vm_allocate_trap(args),
-            _kernelrpc_mach_vm_deallocate_trap(args),
-            _kernelrpc_mach_vm_protect_trap(args),
-            _kernelrpc_mach_vm_map_trap(args),
-            task_self_trap(),
-            mach_msg_trap(args),
-            mach_msg_overwrite_trap(args),
-            mach_msg2_trap(args),
-        }
-    }
-
     fn dispatch_machdep(&mut self, machdep: MachDep) {
         match machdep {
             MachDep::SetCthreadSelf(tsd) => self.cpu.write_sys_reg(SysReg::TPIDRRO_EL0, tsd),

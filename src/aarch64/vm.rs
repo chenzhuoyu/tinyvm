@@ -38,7 +38,7 @@ impl Vm {
     }
 
     #[inline]
-    pub fn protect(base: Uintptr, size: usize, prot: Protection) {
-        hv_call!(hv_vm_protect(base.as_u64(), size, prot.bits()));
+    pub fn protect(addr: Uintptr, size: usize, prot: Protection) {
+        hv_call!(hv_vm_protect(addr.as_u64(), size, prot.bits()));
     }
 }

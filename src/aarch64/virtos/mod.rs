@@ -1,35 +1,32 @@
-#![allow(clippy::not_unsafe_ptr_arg_deref)]
-
-pub mod bsd_mman;
 pub mod commpage;
 pub mod faults;
-pub mod mach_msg;
-pub mod mach_vm;
 pub mod mem;
 pub mod mmio;
 pub mod pac;
 pub mod shared_cache;
-pub mod task;
+pub mod syscall;
 pub mod tlb;
 
-use std::io::Error as IoError;
-
 use crate::{
-    aarch64::paging::PAGE_SIZE,
+    aarch64::{paging::PAGE_SIZE, vm::Vm},
     mem::Protection,
-    utils::{ptr::Uintptr, size::align_to_page},
+    utils::{
+        ptr::{Uintptr, VMA},
+        size::align_to_page,
+    },
 };
 
-/// The guest address of IRQ stubs.
-pub const IRQ_STUBS: Uintptr = Uintptr::new(0xffffff0000);
-
-/// The stack top address for IRQ stubs.
-pub const STACK_TOP: Uintptr = Uintptr::new(0xfffffffff0);
+pub const SP_EL1: VMA = VMA::new(0x3fff_ffff_fff0);
+pub const EL1_STACK: VMA = VMA::new(0x3fff_ffff_c000);
+pub const IRQ_STUBS: VMA = VMA::new(0x3fff_ffff_0000);
 
 unsafe extern "C" {
     unsafe static virtos_end: u8;
     unsafe static virtos_start: u8;
 }
+
+/// EL1 stack top, host address.
+static mut STACK_TOP: Uintptr = Uintptr::NIL;
 
 #[inline]
 fn virtos_code() -> &'static [u8] {
@@ -40,28 +37,9 @@ fn virtos_code() -> &'static [u8] {
     }
 }
 
-fn map_fixed(addr: Uintptr, size: usize) {
-    let ret = unsafe {
-        libc::mmap(
-            addr.as_ptr(),
-            size,
-            libc::PROT_READ | libc::PROT_WRITE,
-            libc::MAP_ANON | libc::MAP_PRIVATE | libc::MAP_FIXED,
-            -1,
-            0,
-        )
-    };
-    assert!(
-        ret != libc::MAP_FAILED,
-        "cannot allocate memory at {addr:p}: {err}",
-        err = IoError::last_os_error(),
-    );
-}
-
 pub fn init() {
     let code = virtos_code();
     let size = align_to_page(code.len());
-    let base = STACK_TOP.align_down(PAGE_SIZE);
 
     /* initialize the page table and memory manager */
     assert!(size <= PAGE_SIZE * 3, "virtos is too large");
@@ -69,18 +47,20 @@ pub fn init() {
     commpage::init();
 
     /* allocate memory for IRQ stubs and EL1 stack */
-    map_fixed(IRQ_STUBS, size);
-    map_fixed(base, PAGE_SIZE);
+    let irq_stubs = Vm::alloc(size);
+    let el1_stack = Vm::alloc(PAGE_SIZE);
 
     /* load the IRQ stubs into memory */
     unsafe {
-        std::ptr::write_bytes(IRQ_STUBS.as_ptr::<u8>(), 0, size);
-        std::ptr::copy_nonoverlapping(code.as_ptr(), IRQ_STUBS.as_ptr(), code.len());
+        STACK_TOP = el1_stack + PAGE_SIZE - 16;
+        std::ptr::write_bytes(irq_stubs.as_ptr::<u8>(), 0, size);
+        std::ptr::copy_nonoverlapping(code.as_ptr(), irq_stubs.as_ptr(), code.len());
     }
 
     /* insert IRQ stubs into the VM map */
-    mem::VmMap::map(
+    mem::VmMap::insert(
         mem::VmKind::Regular,
+        irq_stubs,
         IRQ_STUBS,
         size,
         Protection::RX,
@@ -95,9 +75,10 @@ pub fn init() {
     );
 
     /* insert EL1 stack into the VM map */
-    mem::VmMap::map(
+    mem::VmMap::insert(
         mem::VmKind::Regular,
-        base,
+        el1_stack,
+        EL1_STACK,
         PAGE_SIZE,
         Protection::RW,
         Protection::RW,
@@ -106,7 +87,12 @@ pub fn init() {
 
     /* log the IRQ stubs range */
     tracing::debug!(
-        "EL1 stack is loaded into {base:p}-{end:p}, SP_EL1={STACK_TOP:p}",
-        end = base + PAGE_SIZE
+        "EL1 stack is loaded into {EL1_STACK:p}-{end:p}, SP_EL1={SP_EL1:p}",
+        end = EL1_STACK + PAGE_SIZE
     );
+}
+
+#[inline]
+pub fn stack_top() -> Uintptr {
+    unsafe { STACK_TOP }
 }

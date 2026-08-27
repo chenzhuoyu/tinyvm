@@ -18,10 +18,7 @@ use crate::{
         syscall::mach::{
             ARG_mach_msg_overwrite_trap, ARG_mach_msg_trap, ARG_mach_msg2_trap, mach_msg_option64_t,
         },
-        virtos::{
-            mem::{VmKind, VmMap},
-            task::TASK_SELF,
-        },
+        virtos::mem::{VmKind, VmMap},
     },
     mem::Protection,
     utils::{ptr::Uintptr, size::align_to_page},

@@ -11,10 +11,10 @@ use crate::{
     utils::{ptr::Uintptr, str::Sz},
 };
 
-type au_asflgs_t = u64;
-type au_asid_t = libc::pid_t;
-type au_id_t = libc::uid_t;
-type guardid_t = u64;
+pub type au_asflgs_t = u64;
+pub type au_asid_t = libc::pid_t;
+pub type au_id_t = libc::uid_t;
+pub type guardid_t = u64;
 
 pub const NFS_MAX_FH_SIZE: usize = NFSV4_MAX_FH_SIZE;
 pub const NFSV4_MAX_FH_SIZE: usize = 128;
@@ -3809,8 +3809,8 @@ impl Debug for ARG_openat_dprotected_np {
 pub struct ARG_getattrlist {
     pub path: Sz,
     pub alist: *mut libc::attrlist,
-    pub attributeBuffer: *mut libc::c_void,
-    pub bufferSize: usize,
+    pub attribute_buffer: *mut libc::c_void,
+    pub buffer_size: usize,
     pub options: u64,
 }
 
@@ -3820,8 +3820,8 @@ impl Arg for ARG_getattrlist {
         Self {
             path: Sz::from(args[0] as *mut i8),
             alist: args[1] as *mut libc::attrlist,
-            attributeBuffer: args[2] as *mut libc::c_void,
-            bufferSize: args[3] as usize,
+            attribute_buffer: args[2] as *mut libc::c_void,
+            buffer_size: args[3] as usize,
             options: args[4],
         }
     }
@@ -3832,8 +3832,8 @@ impl Debug for ARG_getattrlist {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "path={:?}, alist={:?}, attributeBuffer={:?}, bufferSize={:?}, options={:?}",
-            self.path, self.alist, self.attributeBuffer, self.bufferSize, self.options
+            "path={:?}, alist={:?}, attribute_buffer={:?}, buffer_size={:?}, options={:?}",
+            self.path, self.alist, self.attribute_buffer, self.buffer_size, self.options
         )
     }
 }
@@ -3842,8 +3842,8 @@ impl Debug for ARG_getattrlist {
 pub struct ARG_setattrlist {
     pub path: Sz,
     pub alist: *mut libc::attrlist,
-    pub attributeBuffer: *mut libc::c_void,
-    pub bufferSize: usize,
+    pub attribute_buffer: *mut libc::c_void,
+    pub buffer_size: usize,
     pub options: u64,
 }
 
@@ -3853,8 +3853,8 @@ impl Arg for ARG_setattrlist {
         Self {
             path: Sz::from(args[0] as *mut i8),
             alist: args[1] as *mut libc::attrlist,
-            attributeBuffer: args[2] as *mut libc::c_void,
-            bufferSize: args[3] as usize,
+            attribute_buffer: args[2] as *mut libc::c_void,
+            buffer_size: args[3] as usize,
             options: args[4],
         }
     }
@@ -3865,8 +3865,8 @@ impl Debug for ARG_setattrlist {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "path={:?}, alist={:?}, attributeBuffer={:?}, bufferSize={:?}, options={:?}",
-            self.path, self.alist, self.attributeBuffer, self.bufferSize, self.options
+            "path={:?}, alist={:?}, attribute_buffer={:?}, buffer_size={:?}, options={:?}",
+            self.path, self.alist, self.attribute_buffer, self.buffer_size, self.options
         )
     }
 }
@@ -4039,8 +4039,8 @@ impl Debug for ARG_copyfile {
 pub struct ARG_fgetattrlist {
     pub fd: i32,
     pub alist: *mut libc::attrlist,
-    pub attributeBuffer: *mut libc::c_void,
-    pub bufferSize: usize,
+    pub attribute_buffer: *mut libc::c_void,
+    pub buffer_size: usize,
     pub options: u64,
 }
 
@@ -4050,8 +4050,8 @@ impl Arg for ARG_fgetattrlist {
         Self {
             fd: args[0] as i32,
             alist: args[1] as *mut libc::attrlist,
-            attributeBuffer: args[2] as *mut libc::c_void,
-            bufferSize: args[3] as usize,
+            attribute_buffer: args[2] as *mut libc::c_void,
+            buffer_size: args[3] as usize,
             options: args[4],
         }
     }
@@ -4062,8 +4062,8 @@ impl Debug for ARG_fgetattrlist {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "fd={:?}, alist={:?}, attributeBuffer={:?}, bufferSize={:?}, options={:?}",
-            self.fd, self.alist, self.attributeBuffer, self.bufferSize, self.options
+            "fd={:?}, alist={:?}, attribute_buffer={:?}, buffer_size={:?}, options={:?}",
+            self.fd, self.alist, self.attribute_buffer, self.buffer_size, self.options
         )
     }
 }
@@ -4072,8 +4072,8 @@ impl Debug for ARG_fgetattrlist {
 pub struct ARG_fsetattrlist {
     pub fd: i32,
     pub alist: *mut libc::attrlist,
-    pub attributeBuffer: *mut libc::c_void,
-    pub bufferSize: usize,
+    pub attribute_buffer: *mut libc::c_void,
+    pub buffer_size: usize,
     pub options: u64,
 }
 
@@ -4083,8 +4083,8 @@ impl Arg for ARG_fsetattrlist {
         Self {
             fd: args[0] as i32,
             alist: args[1] as *mut libc::attrlist,
-            attributeBuffer: args[2] as *mut libc::c_void,
-            bufferSize: args[3] as usize,
+            attribute_buffer: args[2] as *mut libc::c_void,
+            buffer_size: args[3] as usize,
             options: args[4],
         }
     }
@@ -4095,8 +4095,8 @@ impl Debug for ARG_fsetattrlist {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "fd={:?}, alist={:?}, attributeBuffer={:?}, bufferSize={:?}, options={:?}",
-            self.fd, self.alist, self.attributeBuffer, self.bufferSize, self.options
+            "fd={:?}, alist={:?}, attribute_buffer={:?}, buffer_size={:?}, options={:?}",
+            self.fd, self.alist, self.attribute_buffer, self.buffer_size, self.options
         )
     }
 }
@@ -9714,8 +9714,8 @@ impl Debug for ARG_necp_match_policy {
 pub struct ARG_getattrlistbulk {
     pub dirfd: i32,
     pub alist: *mut libc::attrlist,
-    pub attributeBuffer: *mut libc::c_void,
-    pub bufferSize: usize,
+    pub attribute_buffer: *mut libc::c_void,
+    pub buffer_size: usize,
     pub options: u64,
 }
 
@@ -9725,8 +9725,8 @@ impl Arg for ARG_getattrlistbulk {
         Self {
             dirfd: args[0] as i32,
             alist: args[1] as *mut libc::attrlist,
-            attributeBuffer: args[2] as *mut libc::c_void,
-            bufferSize: args[3] as usize,
+            attribute_buffer: args[2] as *mut libc::c_void,
+            buffer_size: args[3] as usize,
             options: args[4],
         }
     }
@@ -9737,8 +9737,8 @@ impl Debug for ARG_getattrlistbulk {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "dirfd={:?}, alist={:?}, attributeBuffer={:?}, bufferSize={:?}, options={:?}",
-            self.dirfd, self.alist, self.attributeBuffer, self.bufferSize, self.options
+            "dirfd={:?}, alist={:?}, attribute_buffer={:?}, buffer_size={:?}, options={:?}",
+            self.dirfd, self.alist, self.attribute_buffer, self.buffer_size, self.options
         )
     }
 }
@@ -10182,8 +10182,8 @@ pub struct ARG_getattrlistat {
     pub fd: i32,
     pub path: Sz,
     pub alist: *mut libc::attrlist,
-    pub attributeBuffer: *mut libc::c_void,
-    pub bufferSize: usize,
+    pub attribute_buffer: *mut libc::c_void,
+    pub buffer_size: usize,
     pub options: u64,
 }
 
@@ -10194,8 +10194,8 @@ impl Arg for ARG_getattrlistat {
             fd: args[0] as i32,
             path: Sz::from(args[1] as *mut i8),
             alist: args[2] as *mut libc::attrlist,
-            attributeBuffer: args[3] as *mut libc::c_void,
-            bufferSize: args[4] as usize,
+            attribute_buffer: args[3] as *mut libc::c_void,
+            buffer_size: args[4] as usize,
             options: args[5],
         }
     }
@@ -10206,8 +10206,8 @@ impl Debug for ARG_getattrlistat {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "fd={:?}, path={:?}, alist={:?}, attributeBuffer={:?}, bufferSize={:?}, options={:?}",
-            self.fd, self.path, self.alist, self.attributeBuffer, self.bufferSize, self.options
+            "fd={:?}, path={:?}, alist={:?}, attribute_buffer={:?}, buffer_size={:?}, options={:?}",
+            self.fd, self.path, self.alist, self.attribute_buffer, self.buffer_size, self.options
         )
     }
 }
@@ -11589,8 +11589,8 @@ pub struct ARG_setattrlistat {
     pub fd: i32,
     pub path: Sz,
     pub alist: *mut libc::attrlist,
-    pub attributeBuffer: *mut libc::c_void,
-    pub bufferSize: usize,
+    pub attribute_buffer: *mut libc::c_void,
+    pub buffer_size: usize,
     pub options: u32,
 }
 
@@ -11601,8 +11601,8 @@ impl Arg for ARG_setattrlistat {
             fd: args[0] as i32,
             path: Sz::from(args[1] as *mut i8),
             alist: args[2] as *mut libc::attrlist,
-            attributeBuffer: args[3] as *mut libc::c_void,
-            bufferSize: args[4] as usize,
+            attribute_buffer: args[3] as *mut libc::c_void,
+            buffer_size: args[4] as usize,
             options: args[5] as u32,
         }
     }
@@ -11613,8 +11613,8 @@ impl Debug for ARG_setattrlistat {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(
             f,
-            "fd={:?}, path={:?}, alist={:?}, attributeBuffer={:?}, bufferSize={:?}, options={:?}",
-            self.fd, self.path, self.alist, self.attributeBuffer, self.bufferSize, self.options
+            "fd={:?}, path={:?}, alist={:?}, attribute_buffer={:?}, buffer_size={:?}, options={:?}",
+            self.fd, self.path, self.alist, self.attribute_buffer, self.buffer_size, self.options
         )
     }
 }

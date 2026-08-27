@@ -5,7 +5,7 @@ use crate::{
     },
     macros::define_bit_field,
     mem::Protection,
-    utils::ptr::Uintptr,
+    utils::ptr::{Uintptr, VMA},
 };
 
 define_bit_field! {
@@ -208,6 +208,37 @@ impl Entry {
 
 impl Entry {
     #[inline]
+    fn page(&self) -> Option<&PageDescriptor> {
+        unsafe {
+            if self.page.valid() == 1 {
+                assert!(self.page.ty() == 1, "invalid L3 page entry");
+                Some(&self.page)
+            } else {
+                None
+            }
+        }
+    }
+
+    #[inline]
+    fn table(&self) -> Option<&[Self; ENTRY_COUNT]> {
+        unsafe {
+            if self.table.valid() == 1 {
+                Some(self.table_unchecked())
+            } else {
+                None
+            }
+        }
+    }
+
+    #[inline]
+    unsafe fn table_unchecked(&self) -> &[Self; ENTRY_COUNT] {
+        let addr = unsafe { self.table.next_table_addr() };
+        Uintptr::from(addr * (PAGE_SIZE as u64)).as_ref()
+    }
+}
+
+impl Entry {
+    #[inline]
     fn page_mut(&mut self) -> Option<&mut PageDescriptor> {
         unsafe {
             if self.page.valid() == 1 {
@@ -228,12 +259,6 @@ impl Entry {
                 None
             }
         }
-    }
-
-    #[inline]
-    unsafe fn table_unchecked(&self) -> &[Self; ENTRY_COUNT] {
-        let addr = unsafe { self.table.next_table_addr() };
-        Uintptr::from(addr * (PAGE_SIZE as u64)).as_ref()
     }
 
     #[inline]
@@ -269,7 +294,7 @@ impl Entry {
         unsafe {
             if self.table.valid() == 0 {
                 let next = Vm::alloc(PAGE_SIZE);
-                Vm::map(next, PAGE_SIZE, Protection::RW);
+                Vm::map(next, PAGE_SIZE, Protection::READ);
                 self.table = TableDescriptor::new(next.as_u64() / (PAGE_SIZE as u64));
                 next.as_mut()
             } else {
@@ -288,17 +313,25 @@ pub struct PageTable([Entry; ENTRY_COUNT]);
 
 impl PageTable {
     #[inline(always)]
-    const fn index(addr: Uintptr) -> (usize, usize, usize) {
-        let ptr = L3Ptr(addr.addr());
+    const fn index(virt: VMA) -> (usize, usize, usize) {
+        let ptr = L3Ptr(virt.addr() as usize);
         assert!(ptr.sign() == 0);
         (ptr.idx1(), ptr.idx2(), ptr.idx3())
     }
 }
 
 impl PageTable {
-    fn walk_pages_mut(&mut self, addr: Uintptr, num_pages: usize, mut f: impl FnMut(&mut [Entry])) {
-        let (p1, p2, p3) = Self::index(addr + num_pages * PAGE_SIZE - 1);
-        let (mut l1, mut l2, mut l3) = Self::index(addr);
+    #[inline]
+    fn find_page(&self, virt: VMA) -> Option<&PageDescriptor> {
+        let (l1, l2, l3) = Self::index(virt);
+        self.0[l1].table()?[l2].table()?[l3].page()
+    }
+}
+
+impl PageTable {
+    fn walk_pages_mut(&mut self, virt: VMA, num_pages: usize, mut f: impl FnMut(&mut [Entry])) {
+        let (p1, p2, p3) = Self::index(virt + num_pages * PAGE_SIZE - 1);
+        let (mut l1, mut l2, mut l3) = Self::index(virt);
 
         /* unset all pages */
         while l1 <= p1 && l2 <= p2 && l3 <= p3 {
@@ -324,29 +357,34 @@ impl PageTable {
 }
 
 impl PageTable {
-    pub fn lookup(&self, addr: Uintptr) -> Protection {
-        unsafe {
-            let (l1, l2, l3) = Self::index(addr);
-            let page = self.0[l1].table_unchecked()[l2].table_unchecked()[l3].page;
-            Protection::from_ap_nx(page.AP(), page.UXN())
-        }
+    #[inline]
+    pub fn lookup(&self, virt: VMA) -> Option<Protection> {
+        let page = self.find_page(virt)?;
+        Some(Protection::from_ap_nx(page.AP(), page.UXN()))
+    }
+
+    #[inline]
+    pub fn translate(&self, virt: VMA) -> Option<Uintptr> {
+        let addr = virt.addr() as usize;
+        let page = self.find_page(virt)?.phys_addr() as usize;
+        Some(Uintptr::new(page * PAGE_SIZE + addr % PAGE_SIZE))
     }
 }
 
 impl PageTable {
-    pub fn set(&mut self, addr: Uintptr, prot: Protection, max_prot: Protection) {
-        let (l1, l2, l3) = Self::index(addr);
+    pub fn set(&mut self, virt: VMA, phys: Uintptr, prot: Protection, max_prot: Protection) {
+        let (l1, l2, l3) = Self::index(virt);
         let next = self.0[l1].set_table();
         let next = next[l2].set_table();
-        next[l3].set_page(addr, prot, max_prot);
+        next[l3].set_page(phys, prot, max_prot);
     }
 
-    pub fn unset(&mut self, addr: Uintptr, num_pages: usize) {
-        self.walk_pages_mut(addr, num_pages, |entries| entries.fill(Entry::INVALID));
+    pub fn unset(&mut self, virt: VMA, num_pages: usize) {
+        self.walk_pages_mut(virt, num_pages, |entries| entries.fill(Entry::INVALID));
     }
 
-    pub fn protect(&mut self, addr: Uintptr, num_pages: usize, prot: Protection) {
-        self.walk_pages_mut(addr, num_pages, |entries| {
+    pub fn protect(&mut self, virt: VMA, num_pages: usize, prot: Protection) {
+        self.walk_pages_mut(virt, num_pages, |entries| {
             for entry in entries {
                 if let Some(page) = entry.page_mut() {
                     page.set_AP(prot.ap());
@@ -359,14 +397,16 @@ impl PageTable {
 
     pub fn prefault(
         &mut self,
-        mut addr: Uintptr,
-        end: Uintptr,
+        mut virt: VMA,
+        mut phys: Uintptr,
+        end: VMA,
         prot: Protection,
         max_prot: Protection,
     ) {
-        while addr < end {
-            self.set(addr, prot, max_prot);
-            addr += PAGE_SIZE;
+        while virt < end {
+            self.set(virt, phys, prot, max_prot);
+            virt += PAGE_SIZE;
+            phys += PAGE_SIZE;
         }
     }
 }

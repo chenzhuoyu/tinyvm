@@ -8,6 +8,8 @@ pub mod syscall;
 pub mod virtos;
 pub mod vm;
 
+use std::io::Error as IoError;
+
 use cpu::Cpu;
 use vm::Vm;
 
@@ -16,7 +18,7 @@ use crate::{
     aarch64::virtos::mem::{VmKind, VmMap},
     image::Image,
     mem::Protection,
-    utils::ptr::Uintptr,
+    utils::ptr::{Uintptr, VMA},
 };
 
 const MAX_DYLD_ARGS: usize = 128;
@@ -100,7 +102,21 @@ impl FrameBuilder<'_> {
 
 #[inline]
 fn on_load(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
-    VmMap::map(VmKind::Regular, addr, size, prot, max_prot, false);
+    VmMap::insert(
+        VmKind::Regular,
+        addr,
+        VMA::new(addr.as_u64()),
+        size,
+        prot,
+        max_prot,
+        false,
+    );
+    if unsafe { libc::mprotect(addr.as_ptr(), size, libc::PROT_READ) } != 0 {
+        panic!(
+            "cannot make image segment read-only: {err}",
+            err = IoError::last_os_error()
+        );
+    }
 }
 
 pub fn vm_exec() -> Unit {
@@ -113,9 +129,10 @@ pub fn vm_exec() -> Unit {
     let frame = stack.as_mut::<InitStackFrame>();
 
     /* insert the stack range into page table */
-    VmMap::map(
+    VmMap::insert(
         VmKind::Regular,
         stack,
+        VMA::new(stack.as_u64()),
         MAIN_STACK_SIZE,
         Protection::RW,
         Protection::RW,

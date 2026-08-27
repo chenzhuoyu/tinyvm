@@ -3,7 +3,7 @@ use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Seek, SeekF
 use crate::{
     aarch64::{disasm::disasm, paging::PAGE_SIZE, vm::Vm},
     mem::Protection,
-    utils::ptr::Uintptr,
+    utils::ptr::{Uintptr, VMA},
 };
 
 fn set_prot(addr: Uintptr, prot: Protection) -> IoResult<()> {
@@ -54,7 +54,7 @@ fn do_fetch_page<F: Read + Seek>(
 }
 
 pub fn fetch_page<F: Read + Seek>(
-    pc: Uintptr,
+    pc: VMA,
     addr: Uintptr,
     base: Uintptr,
     prot: Protection,

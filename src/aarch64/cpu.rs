@@ -11,19 +11,22 @@ use crate::{
         regs::*,
         syscall::Syscall,
         virtos::{
-            IRQ_STUBS, STACK_TOP,
+            IRQ_STUBS, SP_EL1,
             mem::VmMap,
             mmio::{MmioKind, MmioRequest, MmioResponse},
         },
     },
     hv_call,
-    utils::{ptr::Uintptr, str::Sz},
+    utils::{
+        ptr::{Uintptr, VMA},
+        str::Sz,
+    },
 };
 
 #[derive(Clone, Copy)]
 struct VmException {
     syndrome: Syndrome,
-    virt_addr: Uintptr,
+    virt_addr: VMA,
     phys_addr: Uintptr,
 }
 
@@ -52,8 +55,8 @@ impl From<hv_vcpu_exit_exception_t> for VmException {
     fn from(exc: hv_vcpu_exit_exception_t) -> Self {
         Self {
             syndrome: Syndrome(exc.syndrome),
-            virt_addr: exc.virtual_address.into(),
-            phys_addr: exc.physical_address.into(),
+            virt_addr: VMA::new(exc.virtual_address),
+            phys_addr: Uintptr::from(exc.physical_address),
         }
     }
 }
@@ -95,8 +98,8 @@ impl Cpu {
         cpu.write_reg(Reg::PC, pc);
         cpu.write_reg(Reg::CPSR, 0);
         cpu.write_sys_reg(SysReg::SP_EL0, sp);
-        cpu.write_sys_reg(SysReg::SP_EL1, STACK_TOP.as_u64());
-        cpu.write_sys_reg(SysReg::VBAR_EL1, IRQ_STUBS.as_u64());
+        cpu.write_sys_reg(SysReg::SP_EL1, SP_EL1.addr());
+        cpu.write_sys_reg(SysReg::VBAR_EL1, IRQ_STUBS.addr());
         cpu.write_sys_reg(SysReg::CPACR_EL1, CPACR_FPEN);
         cpu
     }
@@ -131,17 +134,9 @@ impl Cpu {
 impl Cpu {
     #[inline]
     pub fn set_single_step(&self, is_enabled: bool) {
-        if is_enabled {
-            self.write_sys_reg(
-                SysReg::MDSCR_EL1,
-                self.read_sys_reg(SysReg::MDSCR_EL1) | MDSCR_SS,
-            );
-        } else {
-            self.write_sys_reg(
-                SysReg::MDSCR_EL1,
-                self.read_sys_reg(SysReg::MDSCR_EL1) & !MDSCR_SS,
-            );
-        }
+        let flags = (-(is_enabled as i64) as u64) & MDSCR_SS;
+        let mdscr = self.read_sys_reg(SysReg::MDSCR_EL1) & !MDSCR_SS;
+        self.write_sys_reg(SysReg::MDSCR_EL1, mdscr | flags);
     }
 }
 
@@ -151,30 +146,30 @@ impl Cpu {
             Exception::AA64_HVC => {
                 let esr = self.read_sys_reg(SysReg::ESR_EL1);
                 let elr = self.read_sys_reg(SysReg::ELR_EL1);
-                self.handle_user_exc(Syndrome(esr), elr.into());
+                self.handle_user_exc(Syndrome(esr), VMA::new(elr));
             }
             Exception::INST_ABORT => {
-                let pc = self.read_reg(Reg::PC);
+                let pc = VMA::new(self.read_reg(Reg::PC));
                 let iss = InstAbortISS(exc.syndrome.ISS() as u32);
-                self.handle_inst_abort(pc.into(), iss, exc.phys_addr);
+                self.handle_inst_abort(pc, iss, exc.virt_addr);
             }
             Exception::DATA_ABORT => {
-                let pc = self.read_reg(Reg::PC);
+                let pc = VMA::new(self.read_reg(Reg::PC));
                 let iss = DataAbortISS(exc.syndrome.ISS() as u32);
-                self.handle_data_abort(pc.into(), iss, exc.phys_addr);
+                self.handle_data_abort(pc, iss, exc.virt_addr);
             }
             Exception::SOFTWARE_STEP => {
-                let pc = Uintptr::from(self.read_reg(Reg::PC));
-                tracing::trace!("SINGLE_STEP: {}", disasm(pc));
+                tracing::trace!("SINGLE_STEP: {}", disasm(VMA::new(self.read_reg(Reg::PC))));
                 self.write_reg(Reg::CPSR, self.read_reg(Reg::CPSR) | PSTATE_SS);
             }
             // TODO: remove this
             Exception::AA64_BKPT => {
-                let msg = Uintptr::from(self.read_reg(Reg::PC)) + (0x1e9c37580u64 - 0x180324818u64);
-                let msg = msg.read::<Sz>();
+                let pc = VMA::new(self.read_reg(Reg::PC));
+                let ptr = pc + (0x1e9c37580u64 - 0x180324818u64);
+                let msg = VmMap::translate(ptr).unwrap().read::<Sz>();
                 eprintln!(
                     "BREAKPOINT: {msg}\nInstruction:\n  {insn}\nException: {exc:#?}\n{self:#?}",
-                    insn = disasm(self.read_reg(Reg::PC))
+                    insn = disasm(pc)
                 );
                 std::intrinsics::breakpoint();
             }
@@ -182,13 +177,13 @@ impl Cpu {
                 panic!(
                     "unhandled exception {ec:?}:\nInstruction:\n  {insn}\nException: \
                      {exc:#?}\n{self:#?}",
-                    insn = disasm(self.read_reg(Reg::PC))
+                    insn = disasm(VMA::new(self.read_reg(Reg::PC)))
                 );
             }
         }
     }
 
-    fn handle_user_exc(&mut self, esr: Syndrome, elr: Uintptr) {
+    fn handle_user_exc(&mut self, esr: Syndrome, elr: VMA) {
         match Exception::from(esr.EC()) {
             Exception::AA64_SVC => {
                 let mut syscall = Syscall::read(self);
@@ -198,15 +193,15 @@ impl Cpu {
             Exception::SYS_REG_TRAP => {
                 let iss = SysRegTrapISS(esr.ISS() as u32);
                 self.handle_sysreg_trap(iss);
-                self.write_sys_reg(SysReg::ELR_EL1, elr.as_u64() + 4);
+                self.write_sys_reg(SysReg::ELR_EL1, elr.addr() + 4);
             }
             Exception::INST_ABORT => {
-                let far = Uintptr::from(self.read_sys_reg(SysReg::FAR_EL1));
+                let far = VMA::new(self.read_sys_reg(SysReg::FAR_EL1));
                 let iss = InstAbortISS(esr.ISS() as u32);
                 self.handle_user_inst_abort(elr, iss, far);
             }
             Exception::DATA_ABORT => {
-                let far = Uintptr::from(self.read_sys_reg(SysReg::FAR_EL1));
+                let far = VMA::new(self.read_sys_reg(SysReg::FAR_EL1));
                 let iss = DataAbortISS(esr.ISS() as u32);
                 self.handle_user_data_abort(elr, iss, far);
             }
@@ -219,11 +214,11 @@ impl Cpu {
         }
     }
 
-    fn handle_inst_abort(&mut self, pc: Uintptr, iss: InstAbortISS, addr: Uintptr) {
+    fn handle_inst_abort(&mut self, pc: VMA, iss: InstAbortISS, addr: VMA) {
         if !iss.is_translation_fault() {
             panic!(
-                "segmentation fault from instruction fetching: {self:#?}\nAddress:\n  \
-                 {addr:p}\nInstruction:\n  {insn}",
+                "segmentation fault from instruction fetching\nAddress:\n  \
+                 {addr:p}\nInstruction:\n  {insn}\n{self:#?}",
                 insn = disasm(pc)
             );
         }
@@ -235,8 +230,8 @@ impl Cpu {
         };
         let Some(resp) = VmMap::handle_mmio(pc, &mut req) else {
             panic!(
-                "unhandled page fault from instruction fetching: {self:#?}\nAddress:\n  \
-                 {addr:p}\nInstruction:\n  {insn}",
+                "unhandled page fault from instruction fetching\nAddress:\n  \
+                 {addr:p}\nInstruction:\n  {insn}\n{self:#?}",
                 insn = disasm(pc)
             );
         };
@@ -247,9 +242,9 @@ impl Cpu {
         );
     }
 
-    fn handle_data_abort(&mut self, pc: Uintptr, iss: DataAbortISS, addr: Uintptr) {
+    fn handle_data_abort(&mut self, pc: VMA, iss: DataAbortISS, addr: VMA) {
         if iss.CM() == 1 {
-            self.write_reg(Reg::PC, pc.as_u64() + 4);
+            self.write_reg(Reg::PC, pc.addr() + 4);
             return;
         }
         if iss.S1PTW() == 1 {
@@ -257,7 +252,7 @@ impl Cpu {
         }
         if !iss.is_translation_fault() {
             panic!(
-                "segmentation fault: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
+                "segmentation fault\nAddress:\n  {addr:p}\nInstruction:\n  {insn}\n{self:#?}",
                 insn = disasm(pc)
             );
         }
@@ -312,7 +307,7 @@ impl Cpu {
             }
             self.write_reg(Reg::from(iss.SRT()), req.data);
         }
-        self.write_reg(Reg::PC, pc.as_u64() + 4);
+        self.write_reg(Reg::PC, pc.addr() + 4);
     }
 
     fn handle_sysreg_trap(&mut self, iss: SysRegTrapISS) {
@@ -328,7 +323,7 @@ impl Cpu {
                     crn = iss.CRn(),
                     crm = iss.CRm(),
                     op2 = iss.Op2(),
-                    insn = disasm(self.read_sys_reg(SysReg::ELR_EL1))
+                    insn = disasm(VMA::new(self.read_sys_reg(SysReg::ELR_EL1)))
                 )
             };
             ($kind:literal, $reg:expr) => {
@@ -337,7 +332,7 @@ impl Cpu {
                      {insn}\nISS={iss:#?}\n{self:#?}",
                     ty = $kind,
                     reg = $reg,
-                    insn = disasm(self.read_sys_reg(SysReg::ELR_EL1))
+                    insn = disasm(VMA::new(self.read_sys_reg(SysReg::ELR_EL1)))
                 )
             };
         }
@@ -369,17 +364,17 @@ impl Cpu {
         }
     }
 
-    fn handle_user_inst_abort(&mut self, pc: Uintptr, iss: InstAbortISS, addr: Uintptr) {
+    fn handle_user_inst_abort(&mut self, pc: VMA, iss: InstAbortISS, addr: VMA) {
         assert!(
             iss.is_translation_fault(),
-            "segmentation fault at EL0 from instruction fetching: {self:#?}\nAddress:\n  \
-             {addr:p}\nInstruction:\n  {insn}",
+            "segmentation fault at EL0 from instruction fetching\nAddress:\n  \
+             {addr:p}\nInstruction:\n  {insn}\n{self:#?}",
             insn = disasm(pc)
         );
         if !VmMap::handle_page_fault(addr, MmioKind::Execution) {
             panic!(
-                "bus fault at EL0 from instruction fetching: {self:#?}\nAddress:\n  \
-                 {addr:p}\nInstruction:\n  {insn}",
+                "bus fault at EL0 from instruction fetching\nAddress:\n  \
+                 {addr:p}\nInstruction:\n  {insn}\n{self:#?}",
                 insn = disasm(pc)
             );
         } else {
@@ -387,10 +382,10 @@ impl Cpu {
         }
     }
 
-    fn handle_user_data_abort(&mut self, pc: Uintptr, iss: DataAbortISS, addr: Uintptr) {
+    fn handle_user_data_abort(&mut self, pc: VMA, iss: DataAbortISS, addr: VMA) {
         assert!(
             iss.is_translation_fault(),
-            "segmentation fault at EL0: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
+            "segmentation fault at EL0\nAddress:\n  {addr:p}\nInstruction:\n  {insn}\n{self:#?}",
             insn = disasm(pc)
         );
         let kind = {
@@ -402,7 +397,7 @@ impl Cpu {
         };
         if !VmMap::handle_page_fault(addr, kind) {
             panic!(
-                "bus fault at EL0: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
+                "bus fault at EL0\nAddress:\n  {addr:p}\nInstruction:\n  {insn}\n{self:#?}",
                 insn = disasm(pc)
             );
         } else {

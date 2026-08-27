@@ -2,10 +2,10 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 
 use disarm64::{InsnOpcode, decoder::decode, format_insn::format_insn_pc};
 
-use crate::utils::ptr::Uintptr;
+use crate::{aarch64::virtos::mem::VmMap, utils::ptr::VMA};
 
 #[derive(Debug, Clone, Copy)]
-pub struct Disasm(Uintptr);
+pub struct Disasm(VMA);
 
 impl Disasm {
     fn write_insn(f: &mut Formatter<'_>, buf: &str) -> FmtResult {
@@ -19,20 +19,24 @@ impl Disasm {
 
 impl Display for Disasm {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        if let Some(ref opcode) = decode(self.0.read()) {
-            let mut buf = String::with_capacity(32);
-            write!(f, "{:p}: {:08x}  ", self.0, opcode.bits())?;
-            format_insn_pc(self.0.as_u64(), &mut buf, opcode)?;
-            Self::write_insn(f, &buf)?;
-            Ok(())
+        if let Some(phys) = VmMap::translate(self.0) {
+            if let Some(ref opcode) = decode(phys.read()) {
+                let mut buf = String::with_capacity(32);
+                write!(f, "{pc:p}: {bits:08x}  ", pc = self.0, bits = opcode.bits())?;
+                format_insn_pc(self.0.addr(), &mut buf, opcode)?;
+                Self::write_insn(f, &buf)?;
+                Ok(())
+            } else {
+                let insn = phys.read::<u32>();
+                write!(f, "{pc:p}: {insn:08x}  (???)", pc = self.0)
+            }
         } else {
-            let insn = self.0.read::<u32>();
-            write!(f, "{:p}: {:08x}  (???)", self.0, insn)
+            write!(f, "{pc:p}: ????????  (???)", pc = self.0)
         }
     }
 }
 
-#[inline]
-pub fn disasm<P: Into<Uintptr>>(pc: P) -> Disasm {
-    Disasm(pc.into())
+#[inline(always)]
+pub fn disasm(pc: VMA) -> Disasm {
+    Disasm(pc)
 }

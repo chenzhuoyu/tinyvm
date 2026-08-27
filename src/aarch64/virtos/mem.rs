@@ -18,8 +18,14 @@ use crate::{
         vm::Vm,
     },
     mem::Protection,
-    utils::{ptr::Uintptr, size::align_to_page},
+    utils::{
+        ptr::{Uintptr, VMA},
+        size::align_to_page,
+    },
 };
+
+const VMA_MIN: VMA = VMA::new(0x0001_0000_0000);
+const VMA_MAX: VMA = VMA::new(0x4000_0000_0000);
 
 #[derive(Clone)]
 pub enum VmKind {
@@ -52,29 +58,12 @@ impl<H: MmioHandler + 'static> From<H> for VmKind {
 
 #[derive(Debug)]
 struct VmRegion {
+    next: VMA,
     kind: VmKind,
-    next: Uintptr,
+    base: Uintptr,
     prot: Protection,
     max_prot: Protection,
     populated: bool,
-}
-
-impl VmRegion {
-    fn map(&self, addr: Uintptr) {
-        if self.kind.is_regular() {
-            Vm::map(addr, self.next - addr, self.prot);
-        }
-    }
-
-    fn unmap(&self, start: Uintptr, end: Uintptr) {
-        assert!(
-            end <= self.next,
-            "unmapping addresses beyound the current region: {self:#?}"
-        );
-        if self.populated || self.kind.is_regular() {
-            Vm::unmap(start, end - start);
-        }
-    }
 }
 
 #[repr(transparent)]
@@ -96,17 +85,34 @@ impl DerefMut for PageTableRef {
     }
 }
 
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct VmFlags : u32 {
+        const FIXED    = 1 << 0;
+        const PREFAULT = 1 << 1;
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProtAndFlags {
+    prot: Protection,
+    max_prot: Protection,
+    map_flags: VmFlags,
+}
+
 pub struct VmMap {
+    free: BTreeMap<VMA, VMA>,
+    used: BTreeMap<VMA, VmRegion>,
     page: PageTableRef,
-    maps: BTreeMap<Uintptr, VmRegion>,
 }
 
 unsafe impl Send for VmMap {}
 unsafe impl Sync for VmMap {}
 
 static VMM: Mutex<VmMap> = Mutex::new(VmMap {
+    free: BTreeMap::new(),
+    used: BTreeMap::new(),
     page: PageTableRef(std::ptr::null_mut()),
-    maps: BTreeMap::new(),
 });
 
 impl VmMap {
@@ -117,10 +123,16 @@ impl VmMap {
                 "page size went bananas: {size} != {PAGE_SIZE}",
                 size = libc::vm_page_size,
             );
-            let tab = Vm::alloc(PAGE_SIZE);
-            Vm::map(tab, PAGE_SIZE, Protection::RW);
-            (*VMM.data_ptr()).page.0 = tab.as_ptr();
         }
+
+        /* allocate memory for page table */
+        let tab = Vm::alloc(PAGE_SIZE);
+        let vmm = unsafe { &mut *VMM.data_ptr() };
+
+        /* initialize the virtual memory allocator */
+        Vm::map(tab, PAGE_SIZE, Protection::READ);
+        vmm.free.insert(VMA_MIN, VMA_MAX);
+        vmm.page.0 = tab.as_ptr();
     }
 
     pub fn base() -> Uintptr {
@@ -131,85 +143,164 @@ impl VmMap {
 }
 
 impl VmMap {
+    fn pop_free(&mut self, size: usize) -> Option<VMA> {
+        let (&base, &next) = self
+            .free
+            .iter()
+            .find(|&(&base, &next)| next - base >= size)?;
+        assert!(
+            self.free.remove(&base).is_some(),
+            "cannot remove items just found"
+        );
+        if base + size < next {
+            self.push_free(base + size, next);
+        }
+        Some(base)
+    }
+
+    fn pop_hint(&mut self, hint: VMA, size: usize) -> Option<VMA> {
+        let (&base, &next) = self
+            .free
+            .range(..=hint)
+            .next_back()
+            .filter(|&(.., &q)| q >= hint + size)?;
+        assert!(
+            self.free.remove(&base).is_some(),
+            "cannot remove items just found"
+        );
+        if base < hint {
+            self.push_free(base, hint);
+        }
+        if hint + size < next {
+            self.push_free(hint + size, next);
+        }
+        Some(hint)
+    }
+
+    fn push_free(&mut self, start: VMA, mut end: VMA) {
+        if let Some(next) = self.free.remove(&end) {
+            end = next;
+        }
+        let prev = self
+            .free
+            .range_mut(..start)
+            .next_back()
+            .filter(|(.., next)| **next == start);
+        if let Some((.., next)) = prev {
+            *next = end;
+        } else {
+            self.free.insert(start, end);
+        }
+    }
+}
+
+impl VmMap {
     fn map_range(
         &mut self,
         kind: VmKind,
-        addr: Uintptr,
+        base: Uintptr,
+        hint: VMA,
         size: usize,
-        prot: Protection,
-        max_prot: Protection,
-        prefault: bool,
-    ) {
-        let region = VmRegion {
-            kind,
-            prot,
-            next: addr + size,
-            max_prot,
-            populated: prefault,
+        meta: ProtAndFlags,
+    ) -> IoResult<VMA> {
+        let fixed = meta.map_flags.contains(VmFlags::FIXED);
+        let mut addr = self.pop_hint(hint, size);
+
+        /* if user does not require mapping at fixed address, try pick one on our own */
+        if !fixed && addr.is_none() {
+            addr = self.pop_free(size);
+        }
+
+        /* should have got an available virtual address */
+        let Some(addr) = addr else {
+            return Err(IoError::from_raw_os_error(libc::ENOMEM));
         };
 
-        /* remove existing mappings before adding new one */
-        self.unmap_range(addr, size);
-        region.map(addr);
-        self.maps.insert(addr, region);
+        /* construct the region */
+        let region = VmRegion {
+            next: addr + size,
+            kind,
+            base,
+            prot: meta.prot,
+            max_prot: meta.max_prot,
+            populated: meta.map_flags.contains(VmFlags::PREFAULT),
+        };
+
+        /* map the memory region into VM if it's regular memory */
+        if region.kind.is_regular() {
+            Vm::map(base, size, meta.prot);
+        }
 
         /* prefault the pages if needed */
-        if prefault {
-            self.page.prefault(addr, addr + size, prot, max_prot);
+        if region.populated {
+            self.page
+                .prefault(addr, base, addr + size, meta.prot, meta.max_prot);
         }
+
+        /* add to used mappings */
+        self.used.insert(addr, region);
+        Ok(addr)
     }
 
-    fn unmap_range(&mut self, addr: Uintptr, size: usize) {
+    fn unmap_range(&mut self, addr: VMA, size: usize) {
         let keys = self
-            .maps
+            .used
             .range(..addr + size)
             .rev()
             .take_while(|&(.., r)| r.next > addr)
             .map(|(&p, ..)| p)
-            .collect::<SmallVec<[Uintptr; 16]>>();
+            .collect::<SmallVec<[VMA; 16]>>();
         for base in keys {
             let region = self
-                .maps
+                .used
                 .remove(&base)
                 .unwrap_or_else(|| unsafe { std::intrinsics::unreachable() });
             if base < addr {
-                self.maps.insert(base, {
+                self.used.insert(base, {
                     VmRegion {
                         next: addr,
-                        prot: region.prot,
                         kind: region.kind.clone(),
+                        base: region.base,
+                        prot: region.prot,
                         max_prot: region.max_prot,
                         populated: region.populated,
                     }
                 });
             }
             if region.next > addr + size {
-                self.maps.insert(addr + size, {
+                self.used.insert(addr + size, {
                     VmRegion {
                         next: region.next,
-                        prot: region.prot,
                         kind: region.kind.clone(),
+                        base: region.base + (addr + size - base),
+                        prot: region.prot,
                         max_prot: region.max_prot,
                         populated: region.populated,
                     }
                 });
             }
-            region.unmap(base.max(addr), region.next.min(addr + size));
+            if region.populated || region.kind.is_regular() {
+                Vm::unmap(
+                    region.base + (addr - base),
+                    region.next.min(addr + size) - addr,
+                );
+            }
         }
         self.page.unset(addr, size / PAGE_SIZE);
+        self.push_free(addr, addr + size);
     }
 
     fn protect_range(
         &mut self,
         cpu: &Cpu,
-        addr: Uintptr,
+        addr: VMA,
         size: usize,
         prot: Protection,
         set_max: bool,
     ) -> IoResult<()> {
         let mut tlbi = false;
-        let mut iter = self.maps.range(..addr + size);
-        let mut rbuf = SmallVec::<[(Uintptr, VmRegion); 2]>::new();
+        let mut iter = self.used.range(..addr + size);
+        let mut rbuf = SmallVec::<[(VMA, VmRegion); 2]>::new();
 
         /* get the first covered region, make sure the address range doesn't have trailing gaps */
         let mut head = {
@@ -239,7 +330,7 @@ impl VmMap {
         }
 
         /* scan through the regions, split regions as needed */
-        for (&base, region) in self.maps.range_mut(head..addr + size).rev() {
+        for (&base, region) in self.used.range_mut(head..addr + size).rev() {
             if region.next <= addr {
                 break;
             }
@@ -248,8 +339,9 @@ impl VmMap {
             }
             if addr + size < region.next {
                 let tail = VmRegion {
-                    kind: region.kind.clone(),
                     next: region.next,
+                    kind: region.kind.clone(),
+                    base: region.base + (addr + size - base),
                     prot: region.prot,
                     max_prot: region.max_prot,
                     populated: region.populated,
@@ -259,8 +351,9 @@ impl VmMap {
             }
             if base < addr {
                 let lead = VmRegion {
-                    kind: region.kind.clone(),
                     next: region.next,
+                    kind: region.kind.clone(),
+                    base: region.base,
                     prot,
                     max_prot: if set_max { prot } else { region.max_prot },
                     populated: region.populated,
@@ -278,7 +371,7 @@ impl VmMap {
 
         /* handle block splitting */
         for (base, region) in rbuf {
-            self.maps.insert(base, region);
+            self.used.insert(base, region);
         }
 
         /* check if we need to flush TLB */
@@ -295,9 +388,9 @@ impl VmMap {
 
 impl VmMap {
     #[inline]
-    fn find_mmio(&mut self, pc: Uintptr, req: &MmioRequest) -> Option<Arc<dyn MmioHandler>> {
+    fn find_mmio(&mut self, pc: VMA, req: &MmioRequest) -> Option<Arc<dyn MmioHandler>> {
         let (.., region) = self
-            .maps
+            .used
             .range_mut(..=req.addr)
             .next_back()
             .filter(|(.., r)| r.next > req.addr)?;
@@ -313,8 +406,8 @@ impl VmMap {
     }
 
     #[inline]
-    fn page_fault_in(&mut self, addr: Uintptr, kind: MmioKind) -> bool {
-        let Some((.., region)) = self.maps.range_mut(..=addr).next_back() else {
+    fn page_fault_in(&mut self, addr: VMA, kind: MmioKind) -> bool {
+        let Some((&base, region)) = self.used.range_mut(..=addr).next_back() else {
             return false;
         };
         if region.next <= addr {
@@ -328,11 +421,17 @@ impl VmMap {
                 _ => unreachable!(),
             }
         };
-        region.prot.contains(mask) && {
-            self.page.set(addr, region.prot, region.max_prot);
-            region.populated = true;
-            true
+        if !region.prot.contains(mask) {
+            return false;
         }
+        self.page.set(
+            addr,
+            region.base + (addr - base),
+            region.prot,
+            region.max_prot,
+        );
+        region.populated = true;
+        true
     }
 }
 
@@ -340,28 +439,28 @@ impl VmMap {
     #[inline]
     pub fn map(
         kind: impl Into<VmKind>,
-        addr: Uintptr,
+        base: Uintptr,
+        hint: VMA,
         size: usize,
         prot: Protection,
         max_prot: Protection,
-        prefault: bool,
-    ) {
+        map_flags: VmFlags,
+    ) -> IoResult<VMA> {
         assert!(
-            addr.is_aligned_to(PAGE_SIZE),
-            "unaligned map base address: {addr:p}"
+            hint.is_aligned_to(PAGE_SIZE),
+            "unaligned map hint address: {hint:p}"
         );
-        VMM.lock().map_range(
-            kind.into(),
-            addr,
-            align_to_page(size),
+        let meta = ProtAndFlags {
             prot,
             max_prot,
-            prefault,
-        );
+            map_flags,
+        };
+        VMM.lock()
+            .map_range(kind.into(), base, hint, align_to_page(size), meta)
     }
 
     #[inline]
-    pub fn unmap(addr: Uintptr, size: usize) {
+    pub fn unmap(addr: VMA, size: usize) {
         assert!(
             addr.is_aligned_to(PAGE_SIZE),
             "unaligned unmap base address: {addr:p}"
@@ -372,7 +471,7 @@ impl VmMap {
     #[inline]
     pub fn protect(
         cpu: &Cpu,
-        addr: Uintptr,
+        addr: VMA,
         size: usize,
         prot: Protection,
         set_max: bool,
@@ -388,20 +487,46 @@ impl VmMap {
 
 impl VmMap {
     #[inline]
-    pub fn lookup(addr: Uintptr) -> Protection {
-        unsafe { (*VMM.data_ptr()).page.lookup(addr) }
+    pub fn insert(
+        kind: impl Into<VmKind>,
+        base: Uintptr,
+        addr: VMA,
+        size: usize,
+        prot: Protection,
+        max_prot: Protection,
+        prefault: bool,
+    ) {
+        let map_flags = {
+            if prefault {
+                VmFlags::FIXED | VmFlags::PREFAULT
+            } else {
+                VmFlags::FIXED
+            }
+        };
+        Self::map(kind, base, addr, size, prot, max_prot, map_flags)
+            .expect("cannot insert VM mappings");
+    }
+
+    #[inline]
+    pub fn lookup(virt: VMA) -> Option<Protection> {
+        VMM.lock().page.lookup(virt)
+    }
+
+    #[inline]
+    pub fn translate(virt: VMA) -> Option<Uintptr> {
+        VMM.lock().page.translate(virt)
     }
 }
 
 impl VmMap {
     #[inline]
-    pub fn handle_mmio(pc: Uintptr, req: &mut MmioRequest) -> Option<MmioResponse> {
+    pub fn handle_mmio(pc: VMA, req: &mut MmioRequest) -> Option<MmioResponse> {
         let mmio = VMM.lock().find_mmio(pc, req)?;
         Some(mmio.handle(pc, req))
     }
 
     #[inline]
-    pub fn handle_page_fault(addr: Uintptr, kind: MmioKind) -> bool {
+    pub fn handle_page_fault(addr: VMA, kind: MmioKind) -> bool {
         VMM.lock().page_fault_in(addr, kind)
     }
 }

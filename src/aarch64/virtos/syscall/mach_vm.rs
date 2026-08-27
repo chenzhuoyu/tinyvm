@@ -16,7 +16,7 @@ use crate::{
             ARG__kernelrpc_mach_vm_map_trap, ARG__kernelrpc_mach_vm_protect_trap,
         },
         virtos::{
-            mem::{VmKind, VmMap},
+            mem::{VmFlags, VmKind, VmMap},
             task::TASK_SELF,
         },
     },
@@ -39,10 +39,11 @@ pub fn _kernelrpc_mach_vm_allocate_trap(
     /* get the allocated address */
     let size = args.size as usize;
     let addr = unsafe { Uintptr::from(*args.addr) };
-    let prot = Protection::RW;
+    let flags = VmFlags::empty();
+    let mprot = Protection::RW;
 
     /* insert into VM map */
-    VmMap::map(VmKind::Regular, addr, size, prot, Protection::all(), false);
+    VmMap::map(VmKind::Regular, addr, size, mprot, Protection::all(), flags);
     KERN_SUCCESS
 }
 
@@ -150,8 +151,9 @@ pub fn _kernelrpc_mach_vm_map_trap(
     /* get the allocated address */
     let size = args.size as usize;
     let addr = unsafe { Uintptr::from(*args.address) };
+    let flags = VmFlags::empty();
 
     /* insert into page table */
-    VmMap::map(VmKind::Regular, addr, size, cur_prot, max_prot, false);
+    VmMap::map(VmKind::Regular, addr, size, cur_prot, max_prot, flags);
     KERN_SUCCESS
 }

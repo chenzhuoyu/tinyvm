@@ -198,6 +198,7 @@ impl Image {
             let vma_addr = Uintptr::new(seg.vmaddr.usize()) + slide;
             let vma_next = vma_addr + seg.vmsize.usize() + slide;
 
+            // TODO: make it on-demand with MMIO
             /* copy content into place */
             unsafe {
                 libc::memcpy(

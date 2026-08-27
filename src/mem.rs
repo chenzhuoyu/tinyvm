@@ -75,12 +75,6 @@ impl Drop for Memory {
     }
 }
 
-impl Debug for Memory {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "{:p}-{:p}", self.addr, self.addr + self.size)
-    }
-}
-
 impl Deref for Memory {
     type Target = [u8];
 

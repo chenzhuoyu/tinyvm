@@ -18,7 +18,11 @@ use crate::{
         },
     },
     mem::Protection,
-    utils::{path::is_real_file, ptr::Uintptr, size::align_to_page},
+    utils::{
+        path::is_real_file,
+        ptr::{Uintptr, VMA},
+        size::align_to_page,
+    },
 };
 
 struct FileMap {
@@ -48,7 +52,7 @@ impl Drop for FileMap {
 }
 
 impl MmioHandler for FileMap {
-    fn handle(&self, pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
+    fn handle(&self, pc: VMA, req: &mut MmioRequest) -> MmioResponse {
         let prot = VmMap::lookup(req.addr);
         let mut file = self.file.lock();
         faults::fetch_page(pc, req.addr, self.base, prot, &mut *file, self.offset);
@@ -75,7 +79,7 @@ impl Drop for ObjectMap {
 }
 
 impl MmioHandler for ObjectMap {
-    fn handle(&self, pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
+    fn handle(&self, pc: VMA, req: &mut MmioRequest) -> MmioResponse {
         assert!(
             req.addr >= self.addr && req.addr + req.size <= self.addr + self.size,
             "MMIO access out of range"
