@@ -280,10 +280,17 @@ impl VmMap {
                 });
             }
             if region.populated || region.kind.is_regular() {
-                Vm::unmap(
+                let (addr, size) = (
                     region.base + (addr - base),
                     region.next.min(addr + size) - addr,
                 );
+                let should_dealloc = {
+                    Vm::unmap(addr, size);
+                    region.kind.is_regular()
+                };
+                if should_dealloc {
+                    Vm::dealloc(addr, size);
+                }
             }
         }
         self.page.unset(addr, size / PAGE_SIZE);

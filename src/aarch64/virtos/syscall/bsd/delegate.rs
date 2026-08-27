@@ -4,7 +4,7 @@ use std::io::Result as IoResult;
 
 use crate::{
     aarch64::{cpu::Cpu, syscall::bsd::*},
-    utils::ptr::Uintptr,
+    utils::ptr::VMA,
 };
 
 #[inline]
@@ -453,7 +453,7 @@ pub fn getdirentries(_cpu: &Cpu, _args: ARG_getdirentries) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn mmap(_cpu: &Cpu, _args: ARG_mmap) -> IoResult<Uintptr> {
+pub fn mmap(_cpu: &Cpu, _args: ARG_mmap) -> IoResult<VMA> {
     todo!();
 }
 
@@ -638,7 +638,7 @@ pub fn msgrcv(_cpu: &Cpu, _args: ARG_msgrcv) -> IoResult<isize> {
 }
 
 #[inline]
-pub fn shmat(_cpu: &Cpu, _args: ARG_shmat) -> IoResult<Uintptr> {
+pub fn shmat(_cpu: &Cpu, _args: ARG_shmat) -> IoResult<VMA> {
     todo!();
 }
 
@@ -663,7 +663,7 @@ pub fn shm_unlink(_cpu: &Cpu, _args: ARG_shm_unlink) -> IoResult<()> {
 }
 
 #[inline]
-pub fn sem_open(_cpu: &Cpu, _args: ARG_sem_open) -> IoResult<Uintptr> {
+pub fn sem_open(_cpu: &Cpu, _args: ARG_sem_open) -> IoResult<VMA> {
     todo!();
 }
 
@@ -1018,7 +1018,7 @@ pub fn auditctl(_cpu: &Cpu, _args: ARG_auditctl) -> IoResult<()> {
 }
 
 #[inline]
-pub fn bsdthread_create(_cpu: &Cpu, _args: ARG_bsdthread_create) -> IoResult<Uintptr> {
+pub fn bsdthread_create(_cpu: &Cpu, _args: ARG_bsdthread_create) -> IoResult<VMA> {
     todo!();
 }
 

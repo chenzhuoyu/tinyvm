@@ -4,10 +4,10 @@ use crate::aarch64::{cpu::Cpu, syscall::mach::*};
 
 #[inline]
 pub fn _kernelrpc_mach_vm_allocate_trap(
-    _cpu: &Cpu,
-    _args: ARG__kernelrpc_mach_vm_allocate_trap,
+    cpu: &Cpu,
+    args: ARG__kernelrpc_mach_vm_allocate_trap,
 ) -> mach2::kern_return::kern_return_t {
-    todo!();
+    crate::aarch64::virtos::syscall::mach::vm::_kernelrpc_mach_vm_allocate_trap(cpu, args)
 }
 
 #[inline]
@@ -20,10 +20,10 @@ pub fn _kernelrpc_mach_vm_purgable_control_trap(
 
 #[inline]
 pub fn _kernelrpc_mach_vm_deallocate_trap(
-    _cpu: &Cpu,
-    _args: ARG__kernelrpc_mach_vm_deallocate_trap,
+    cpu: &Cpu,
+    args: ARG__kernelrpc_mach_vm_deallocate_trap,
 ) -> mach2::kern_return::kern_return_t {
-    todo!();
+    crate::aarch64::virtos::syscall::mach::vm::_kernelrpc_mach_vm_deallocate_trap(cpu, args)
 }
 
 #[inline]
@@ -36,18 +36,18 @@ pub fn task_dyld_process_info_notify_get_trap(
 
 #[inline]
 pub fn _kernelrpc_mach_vm_protect_trap(
-    _cpu: &Cpu,
-    _args: ARG__kernelrpc_mach_vm_protect_trap,
+    cpu: &Cpu,
+    args: ARG__kernelrpc_mach_vm_protect_trap,
 ) -> mach2::kern_return::kern_return_t {
-    todo!();
+    crate::aarch64::virtos::syscall::mach::vm::_kernelrpc_mach_vm_protect_trap(cpu, args)
 }
 
 #[inline]
 pub fn _kernelrpc_mach_vm_map_trap(
-    _cpu: &Cpu,
-    _args: ARG__kernelrpc_mach_vm_map_trap,
+    cpu: &Cpu,
+    args: ARG__kernelrpc_mach_vm_map_trap,
 ) -> mach2::kern_return::kern_return_t {
-    todo!();
+    crate::aarch64::virtos::syscall::mach::vm::_kernelrpc_mach_vm_map_trap(cpu, args)
 }
 
 #[inline]

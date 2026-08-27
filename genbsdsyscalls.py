@@ -13,7 +13,7 @@ use std::fmt::{Debug, Formatter, Result as FmtResult};
 
 use crate::{
     macros::define_bit_field,
-    utils::{ptr::Uintptr, str::Sz},
+    utils::{ptr::VMA, str::Sz},
 };
 
 pub type au_asflgs_t = u64;
@@ -107,11 +107,11 @@ impl Debug for semun_t {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct shared_mapping_np {
-	pub sms_address: Uintptr,
+	pub sms_address: VMA,
 	pub sms_size: libc::mach_vm_size_t,
 	pub sms_file_offset: libc::mach_vm_offset_t,
 	pub sms_slide_size: usize,
-	pub sms_slide_start: Uintptr,
+	pub sms_slide_start: VMA,
 	pub sms_max_prot: libc::vm_prot_t,
 	pub sms_init_prot: libc::vm_prot_t,
 }
@@ -348,8 +348,8 @@ impl Syscall<'_> {
 TYPE_MAP = {
     'au_asid_t'                       : 'au_asid_t',
     'au_id_t'                         : 'au_id_t',
-    'caddr_t'                         : 'Uintptr',
-    'caddr_ut'                        : 'Uintptr',
+    'caddr_t'                         : 'VMA',
+    'caddr_ut'                        : 'VMA',
     'char'                            : 'i8',
     'fhandle_t'                       : 'fhandle_t',
     'gid_t'                           : 'libc::gid_t',
@@ -428,7 +428,7 @@ TYPE_MAP = {
     'uint8_t'                         : 'u8',
     'unsigned char'                   : 'u8',
     'unsigned int'                    : 'u32',
-    'user_addr_t'                     : 'Uintptr',
+    'user_addr_t'                     : 'VMA',
     'user_size_t'                     : 'usize',
     'user_ssize_t'                    : 'isize',
     'uuid_t'                          : 'libc::uuid_t',
@@ -478,7 +478,7 @@ RUST_RESERVED = {
 
 POINTER_TYPES = {
     'Sz',
-    'Uintptr',
+    'VMA',
 }
 
 STATUS_ONLY_SYSCALLS = {
@@ -816,7 +816,7 @@ class Arg:
     def to_rust_args(self, i: int) -> tuple[int, str]:
         match self.rust_type:
             case 'u64'          : return 1, f'args[{i}]'
-            case 'Uintptr'      : return 1, f'Uintptr::from(args[{i}])'
+            case 'VMA'          : return 1, f'VMA::new(args[{i}])'
             case 'Sz'           : return 1, f'Sz::from(args[{i}] as *mut i8)'
             case 'semun_t'      : return 1, f'semun_t::from_u64(args[{i}])'
             case 'libc::uuid_t' : return 2, f'mk_uuid(args[{i}], args[{i + 1}])'
@@ -1040,7 +1040,7 @@ with open('src/aarch64/virtos/syscall/bsd/delegate.rs', 'w') as fp:
     print(file = fp)
     print('use crate::{', file = fp)
     print('    aarch64::{cpu::Cpu, syscall::bsd::*},', file = fp)
-    print('    utils::ptr::Uintptr,', file = fp)
+    print('    utils::ptr::VMA,', file = fp)
     print('};', file = fp)
     print(file = fp)
 
@@ -1071,7 +1071,20 @@ with open('src/aarch64/virtos/syscall/bsd/delegate.rs', 'w') as fp:
         else:
             print(f'pub fn {sc.name}({cpu}: &Cpu) -> IoResult<{ret_ty}> {{', file = fp)
 
-        print('    todo!();', file = fp)
+        match IMPLEMENTED_SYSCALLS.get(sc.name):
+            case None:
+                print('    todo!();', file = fp)
+
+            case ('code', code):
+                print(code, file = fp)
+
+            case pkg if isinstance(pkg, str):
+                argv = []
+                argv += ['cpu'] if use_cpu else []
+                argv += ['args'] if use_args else []
+                args = ', '.join(argv)
+                print(f'    {pkg}::{sc.name}({args})', file = fp)
+
         print('}', file = fp)
         print(file = fp)
 

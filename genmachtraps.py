@@ -10,7 +10,7 @@ PRELUDE = r'''#![allow(dead_code)]
 
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 
-use crate::{macros::define_bit_field, utils::ptr::Uintptr};
+use crate::{macros::define_bit_field, utils::ptr::VMA};
 
 pub type mach_msg_priority_t = u32;
 pub type mach_port_flavor_t = i32;
@@ -193,7 +193,7 @@ TYPE_MAP = {
     'mach_port_t'                          : 'mach2::port::mach_port_t',
     'mach_port_type_t'                     : 'mach2::port::mach_port_type_t',
     'mach_timespec_t'                      : 'mach2::clock_types::mach_timespec_t',
-    'mach_vm_address_t'                    : 'Uintptr',
+    'mach_vm_address_t'                    : 'VMA',
     'mach_vm_offset_t'                     : 'mach2::vm_types::mach_vm_offset_t',
     'mach_vm_size_t'                       : 'mach2::vm_types::mach_vm_size_t',
     'mach_voucher_attr_key_t'              : 'mach2::mach_voucher_types::mach_voucher_attr_key_t',
@@ -262,7 +262,7 @@ RUST_RESERVED = {
 }
 
 POINTER_TYPES = {
-    'Uintptr',
+    'VMA',
     'mach_port_info_t',
     'mach_port_name_array_t',
     'mach2::mach_voucher_types::mach_voucher_attr_raw_recipe_array_t',
@@ -270,12 +270,21 @@ POINTER_TYPES = {
 }
 
 IMPLEMENTED_TRAPS = {
-    'task_self_trap'          : 'unsafe { mach2::traps::mach_task_self() }',
-    'mach_msg_trap'           : 'mach2::kern_return::KERN_NOT_SUPPORTED',
-    'mach_msg_overwrite_trap' : 'mach2::kern_return::KERN_NOT_SUPPORTED',
+    '_kernelrpc_mach_vm_allocate_trap'   : 'crate::aarch64::virtos::syscall::mach::vm',
+    '_kernelrpc_mach_vm_deallocate_trap' : 'crate::aarch64::virtos::syscall::mach::vm',
+    '_kernelrpc_mach_vm_protect_trap'    : 'crate::aarch64::virtos::syscall::mach::vm',
+    '_kernelrpc_mach_vm_map_trap'        : 'crate::aarch64::virtos::syscall::mach::vm',
+    'task_self_trap'                     : ('code', 'unsafe { mach2::traps::mach_task_self() }'),
+    'mach_msg_trap'                      : ('code', 'mach2::kern_return::KERN_NOT_SUPPORTED'),
+    'mach_msg_overwrite_trap'            : ('code', 'mach2::kern_return::KERN_NOT_SUPPORTED'),
 }
 
-TRAP_IMPL_FLAGS = {}
+TRAP_IMPL_FLAGS = {
+    '_kernelrpc_mach_vm_allocate_trap'   : {'use:cpu', 'use:args'},
+    '_kernelrpc_mach_vm_deallocate_trap' : {'use:cpu', 'use:args'},
+    '_kernelrpc_mach_vm_protect_trap'    : {'use:cpu', 'use:args'},
+    '_kernelrpc_mach_vm_map_trap'        : {'use:cpu', 'use:args'},
+}
 
 @dataclasses.dataclass
 class Arg:
@@ -304,7 +313,7 @@ class Arg:
     def to_rust_args(self, i: int) -> tuple[int, str]:
         match self.rust_type:
             case 'u64'                 : return 1, f'args[{i}]'
-            case 'Uintptr'             : return 1, f'Uintptr::from(args[{i}])'
+            case 'VMA'                 : return 1, f'VMA::new(args[{i}])'
             case 'mach_msg_option64_t' : return 1, f'mach_msg_option64_t::from_bits_retain(args[{i}])'
             case 'mach_msg_packed32_t' : return 1, f'mach_msg_packed32_t(args[{i}])'
             case ty                    : return 1, f'args[{i}] as {ty}'
@@ -608,7 +617,7 @@ with open('src/aarch64/virtos/syscall/mach/delegate.rs', 'w') as fp:
 
         if flags := TRAP_IMPL_FLAGS.get(trap.name):
             use_cpu = 'use:cpu' in flags
-            use_args = 'use:flags' in flags
+            use_args = 'use:args' in flags
 
         cpu = 'cpu' if use_cpu else '_cpu'
         print('#[inline]', file = fp)
@@ -619,10 +628,19 @@ with open('src/aarch64/virtos/syscall/mach/delegate.rs', 'w') as fp:
         else:
             print(f'pub fn {trap.name}({cpu}: &Cpu) -> {trap.ret_ty.rust_type} {{', file = fp)
 
-        if code := IMPLEMENTED_TRAPS.get(trap.name):
-            print(code, file = fp)
-        else:
-            print('    todo!();', file = fp)
+        match IMPLEMENTED_TRAPS.get(trap.name):
+            case None:
+                print('    todo!();', file = fp)
+
+            case ('code', code):
+                print(code, file = fp)
+
+            case pkg if isinstance(pkg, str):
+                argv = []
+                argv += ['cpu'] if use_cpu else []
+                argv += ['args'] if use_args else []
+                args = ', '.join(argv)
+                print(f'    {pkg}::{trap.name}({args})', file = fp)
 
         print('}', file = fp)
         print(file = fp)

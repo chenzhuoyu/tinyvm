@@ -6,7 +6,7 @@
 
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 
-use crate::{macros::define_bit_field, utils::ptr::Uintptr};
+use crate::{macros::define_bit_field, utils::ptr::VMA};
 
 pub type mach_msg_priority_t = u32;
 pub type mach_port_flavor_t = i32;
@@ -191,7 +191,7 @@ impl Debug for ARG__kernelrpc_mach_vm_purgable_control_trap {
 #[derive(Clone, Copy)]
 pub struct ARG__kernelrpc_mach_vm_deallocate_trap {
     pub target: mach2::port::mach_port_name_t,
-    pub address: Uintptr,
+    pub address: VMA,
     pub size: mach2::vm_types::mach_vm_size_t,
 }
 
@@ -200,7 +200,7 @@ impl Arg for ARG__kernelrpc_mach_vm_deallocate_trap {
     fn decode(args: &[u64; 9]) -> Self {
         Self {
             target: args[0] as mach2::port::mach_port_name_t,
-            address: Uintptr::from(args[1]),
+            address: VMA::new(args[1]),
             size: args[2] as mach2::vm_types::mach_vm_size_t,
         }
     }
@@ -247,7 +247,7 @@ impl Debug for ARG_task_dyld_process_info_notify_get_trap {
 #[derive(Clone, Copy)]
 pub struct ARG__kernelrpc_mach_vm_protect_trap {
     pub target: mach2::port::mach_port_name_t,
-    pub address: Uintptr,
+    pub address: VMA,
     pub size: mach2::vm_types::mach_vm_size_t,
     pub set_maximum: i32,
     pub new_protection: mach2::vm_prot::vm_prot_t,
@@ -258,7 +258,7 @@ impl Arg for ARG__kernelrpc_mach_vm_protect_trap {
     fn decode(args: &[u64; 9]) -> Self {
         Self {
             target: args[0] as mach2::port::mach_port_name_t,
-            address: Uintptr::from(args[1]),
+            address: VMA::new(args[1]),
             size: args[2] as mach2::vm_types::mach_vm_size_t,
             set_maximum: args[3] as i32,
             new_protection: args[4] as mach2::vm_prot::vm_prot_t,

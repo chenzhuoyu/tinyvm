@@ -1,8 +1,8 @@
-use std::io::Error as IoError;
+use std::io::{Error as IoError, Result as IoResult};
 
 use mach2::kern_return::{
     KERN_FAILURE, KERN_INVALID_ADDRESS, KERN_INVALID_ARGUMENT, KERN_MEMORY_ERROR,
-    KERN_PROTECTION_FAILURE, kern_return_t,
+    KERN_PROTECTION_FAILURE, KERN_SUCCESS, kern_return_t,
 };
 
 pub trait AsKernReturn {
@@ -21,6 +21,17 @@ impl AsKernReturn for IoError {
             }
         } else {
             KERN_FAILURE
+        }
+    }
+}
+
+impl AsKernReturn for IoResult<()> {
+    #[inline]
+    fn as_kern_return(&self) -> kern_return_t {
+        if let Err(err) = self {
+            err.as_kern_return()
+        } else {
+            KERN_SUCCESS
         }
     }
 }

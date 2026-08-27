@@ -15,7 +15,7 @@ use crate::{
         cpu::Cpu,
         regs::{PSTATE_C, PSTATE_N, PSTATE_NZCV, PSTATE_V, PSTATE_Z, Reg, SysReg},
     },
-    utils::ptr::Uintptr,
+    utils::ptr::VMA,
 };
 
 trait BsdResult: Copy {
@@ -57,10 +57,10 @@ impl BsdResult for () {
     }
 }
 
-impl BsdResult for Uintptr {
+impl BsdResult for VMA {
     #[inline(always)]
     fn as_result(self) -> u64 {
-        self.as_u64()
+        self.addr()
     }
 }
 
