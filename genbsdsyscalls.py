@@ -481,6 +481,312 @@ POINTER_TYPES = {
     'Uintptr',
 }
 
+STATUS_ONLY_SYSCALLS = {
+    'sys_close',
+    'link',
+    'unlink',
+    'sys_chdir',
+    'sys_fchdir',
+    'mknod',
+    'chmod',
+    'chown',
+    'setuid',
+    'getpeername',
+    'getsockname',
+    'access',
+    'chflags',
+    'fchflags',
+    'sync',
+    'kill',
+    'sys_crossarch_trap',
+    'sigaction',
+    'sigprocmask',
+    'getlogin',
+    'setlogin',
+    'acct',
+    'sigpending',
+    'sigaltstack',
+    'ioctl',
+    'reboot',
+    'revoke',
+    'symlink',
+    'execve',
+    'chroot',
+    'msync',
+    'oslog_coproc_reg',
+    'oslog_coproc',
+    'munmap',
+    'mprotect',
+    'madvise',
+    'mincore',
+    'setgroups',
+    'setpgid',
+    'setitimer',
+    'swapon',
+    'getitimer',
+    'fsync',
+    'setpriority',
+    'connect',
+    'bind',
+    'setsockopt',
+    'listen',
+    'sigsuspend',
+    'gettimeofday',
+    'getrusage',
+    'getsockopt',
+    'settimeofday',
+    'fchown',
+    'fchmod',
+    'setreuid',
+    'setregid',
+    'rename',
+    'sys_flock',
+    'mkfifo',
+    'shutdown',
+    'socketpair',
+    'mkdir',
+    'rmdir',
+    'utimes',
+    'futimes',
+    'adjtime',
+    'gethostuuid',
+    'nfssvc',
+    'statfs',
+    'fstatfs',
+    'unmount',
+    'getfh',
+    'funmount',
+    'quotactl',
+    'mount',
+    'csops',
+    'csops_audittoken',
+    'waitid',
+    'kdebug_typefilter',
+    'kdebug_trace64',
+    'kdebug_trace',
+    'setgid',
+    'setegid',
+    'seteuid',
+    'sigreturn',
+    'sys_panic_with_data',
+    'thread_selfcounts',
+    'fdatasync',
+    'stat',
+    'sys_fstat',
+    'lstat',
+    'getrlimit',
+    'setrlimit',
+    'truncate',
+    'ftruncate',
+    'sysctl',
+    'mlock',
+    'munlock',
+    'undelete',
+    'getattrlist',
+    'setattrlist',
+    'getdirentriesattr',
+    'exchangedata',
+    'searchfs',
+    'delete',
+    'copyfile',
+    'fgetattrlist',
+    'fsetattrlist',
+    'setxattr',
+    'fsetxattr',
+    'removexattr',
+    'fremovexattr',
+    'fsctl',
+    'initgroups',
+    'posix_spawn',
+    'ffsctl',
+    'minherit',
+    'semsys',
+    'msgsys',
+    'shmsys',
+    'semop',
+    'msgctl',
+    'msgsnd',
+    'shmctl',
+    'shmdt',
+    'shm_unlink',
+    'sem_close',
+    'sem_unlink',
+    'sem_wait',
+    'sem_trywait',
+    'sem_post',
+    'sys_sysctlbyname',
+    'umask_extended',
+    'stat_extended',
+    'lstat_extended',
+    'sys_fstat_extended',
+    'chmod_extended',
+    'fchmod_extended',
+    'access_extended',
+    'sys_settid',
+    'gettid',
+    'setsgroups',
+    'getsgroups',
+    'setwgroups',
+    'getwgroups',
+    'mkfifo_extended',
+    'mkdir_extended',
+    'identitysvc',
+    'shared_region_check_np',
+    'psynch_rw_downgrade',
+    'getsid',
+    'sys_settid_with_pid',
+    'psynch_cvclrprepost',
+    'aio_fsync',
+    'aio_suspend',
+    'aio_read',
+    'aio_write',
+    'lio_listio',
+    'iopolicysys',
+    'process_policy',
+    'mlockall',
+    'munlockall',
+    'issetugid',
+    '__pthread_kill',
+    '__pthread_sigmask',
+    '__sigwait',
+    '__disable_threadsignal',
+    '__pthread_markcancel',
+    '__pthread_canceled',
+    '__semwait_signal',
+    'sendfile',
+    'stat64',
+    'sys_fstat64',
+    'lstat64',
+    'stat64_extended',
+    'lstat64_extended',
+    'sys_fstat64_extended',
+    'statfs64',
+    'fstatfs64',
+    '__pthread_chdir',
+    '__pthread_fchdir',
+    'audit',
+    'auditon',
+    'getauid',
+    'setauid',
+    'getaudit_addr',
+    'setaudit_addr',
+    'auditctl',
+    'bsdthread_terminate',
+    'lchown',
+    'bsdthread_register',
+    'workq_open',
+    'ledger',
+    '__mac_execve',
+    '__mac_syscall',
+    '__mac_get_file',
+    '__mac_set_file',
+    '__mac_get_link',
+    '__mac_set_link',
+    '__mac_get_proc',
+    '__mac_set_proc',
+    '__mac_get_fd',
+    '__mac_set_fd',
+    '__mac_get_pid',
+    'sys_close_nocancel',
+    'msync_nocancel',
+    'fsync_nocancel',
+    'connect_nocancel',
+    'sigsuspend_nocancel',
+    'waitid_nocancel',
+    'msgsnd_nocancel',
+    'sem_wait_nocancel',
+    'aio_suspend_nocancel',
+    '__sigwait_nocancel',
+    '__semwait_signal_nocancel',
+    '__mac_mount',
+    '__mac_get_mount',
+    '__mac_getfsstat',
+    'audit_session_join',
+    'sys_fileport_makeport',
+    'audit_session_port',
+    'pid_suspend',
+    'pid_resume',
+    'pid_hibernate',
+    'pid_shutdown_sockets',
+    'kas_info',
+    'guarded_close_np',
+    'change_fdguard_np',
+    'usrctl',
+    'proc_rlimit_control',
+    'connectx',
+    'disconnectx',
+    'peeloff',
+    'telemetry',
+    'proc_uuid_policy',
+    'memorystatus_get_level',
+    'system_override',
+    'vfs_purge',
+    'sfi_ctl',
+    'sfi_pidctl',
+    'coalition',
+    'coalition_info',
+    'necp_match_policy',
+    'clonefileat',
+    'renameat',
+    'faccessat',
+    'fchmodat',
+    'fchownat',
+    'fstatat',
+    'fstatat64',
+    'linkat',
+    'unlinkat',
+    'symlinkat',
+    'mkdirat',
+    'getattrlistat',
+    'proc_trace_log',
+    'csrctl',
+    'renameatx_np',
+    'mremap_encrypted',
+    'stack_snapshot_with_config',
+    'microstackshot',
+    'persona',
+    'work_interval_ctl',
+    'getentropy',
+    '__nexus_register',
+    '__nexus_deregister',
+    '__nexus_create',
+    '__nexus_destroy',
+    '__nexus_get_opt',
+    '__nexus_set_opt',
+    '__channel_get_info',
+    '__channel_sync',
+    '__channel_get_opt',
+    '__channel_set_opt',
+    'fclonefileat',
+    'fs_snapshot',
+    'terminate_with_payload',
+    'necp_session_action',
+    'setattrlistat',
+    'fmount',
+    'ntp_gettime',
+    'os_fault_with_payload',
+    'coalition_ledger',
+    'log_data',
+    'objc_bp_assist_cfg_np',
+    'shared_region_map_and_slide_2_np',
+    'pivot_root',
+    'task_inspect_for_pid',
+    'task_read_for_pid',
+    'tracker_action',
+    'debug_syscall_reject',
+    'sys_debug_syscall_reject_config',
+    'graftdmg',
+    'map_with_linking_np',
+    'sys_record_system_event',
+    'mkfifoat',
+    'mknodat',
+    'ungraftdmg',
+    'sys_coalition_policy_set',
+}
+
+IMPLEMENTED_SYSCALLS = {}
+SYSCALL_IMPL_FLAGS = {}
+
 @dataclasses.dataclass
 class Arg:
     name  : str
@@ -518,10 +824,11 @@ class Arg:
 
 @dataclasses.dataclass
 class Syscall:
-    id     : int
-    name   : str
-    args   : list[Arg]
-    ret_ty : Arg
+    id      : int
+    name    : str
+    args    : list[Arg]
+    ret_ty  : Arg
+    ret_int : bool
 
     @property
     def is_nosys(self) -> bool:
@@ -567,6 +874,7 @@ for line in map(str.lstrip, lines):
     end = decl.index('}')
     decl = decl[1:end].strip()
     ret_ty, decl = decl.split(None, 1)
+    ret_int = ret_ty == 'int'
     ret_indir = 0
 
     while decl.startswith('*'):
@@ -575,6 +883,7 @@ for line in map(str.lstrip, lines):
 
     while ret_ty.endswith('*'):
         ret_ty = ret_ty[:-1].strip()
+        ret_int = False
         ret_indir += 1
 
     ret_ty = TYPE_MAP[ret_ty]
@@ -616,7 +925,7 @@ for line in map(str.lstrip, lines):
     if len(args) > 8:
         raise RuntimeError(f'too many arguments: {line}')
 
-    syscalls.append(Syscall(id, func, args, ret_ty))
+    syscalls.append(Syscall(id, func, args, ret_ty, ret_int))
     id += 1
 
 with open('src/aarch64/syscall/bsd.rs', 'w') as fp:
@@ -709,7 +1018,7 @@ with open('src/aarch64/syscall/bsd_impl.rs', 'w') as fp:
 
     for sc in syscalls:
         if not sc.is_nosys:
-            if sc.ret_ty.is_ptr or any(v.is_ptr for v in sc.args):
+            if sc.ret_ty.is_ptr or any(v.is_ptr for v in sc.args) or sc.name in IMPLEMENTED_SYSCALLS:
                 if sc.args:
                     print(f'            {sc.name}(args),', file = fp)
                 else:
@@ -736,18 +1045,31 @@ with open('src/aarch64/virtos/syscall/bsd/delegate.rs', 'w') as fp:
     print(file = fp)
 
     for sc in syscalls:
+        use_cpu = False
+        use_args = False
+
         if sc.is_nosys:
             continue
 
-        if not sc.ret_ty.is_ptr and all(not v.is_ptr for v in sc.args):
+        if not sc.ret_ty.is_ptr and all(not v.is_ptr for v in sc.args) and sc.name not in IMPLEMENTED_SYSCALLS:
             continue
 
+        if flags := SYSCALL_IMPL_FLAGS.get(sc.name):
+            use_cpu = 'use:cpu' in flags
+            use_args = 'use:flags' in flags
+
+        cpu = 'cpu' if use_cpu else '_cpu'
+        ret_ty = sc.ret_ty.rust_type
+        print('#[inline]', file = fp)
+
+        if sc.name in STATUS_ONLY_SYSCALLS:
+            ret_ty = '()'
+
         if sc.args:
-            print('#[inline]', file = fp)
-            print(f'pub fn {sc.name}(_cpu: &Cpu, _args: ARG_{sc.name}) -> IoResult<{sc.ret_ty.rust_type}> {{', file = fp)
+            args = 'args' if use_args else '_args'
+            print(f'pub fn {sc.name}({cpu}: &Cpu, {args}: ARG_{sc.name}) -> IoResult<{ret_ty}> {{', file = fp)
         else:
-            print('#[inline]', file = fp)
-            print(f'pub fn {sc.name}(_cpu: &Cpu) -> IoResult<{sc.ret_ty.rust_type}> {{', file = fp)
+            print(f'pub fn {sc.name}({cpu}: &Cpu) -> IoResult<{ret_ty}> {{', file = fp)
 
         print('    todo!();', file = fp)
         print('}', file = fp)

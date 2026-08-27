@@ -47,7 +47,7 @@ impl Syscall<'_> {
             _kernelrpc_mach_port_destruct_trap(..),
             mach_reply_port,
             thread_self_trap,
-            task_self_trap,
+            task_self_trap(),
             host_self_trap,
             mach_msg_trap(args),
             mach_msg_overwrite_trap(args),

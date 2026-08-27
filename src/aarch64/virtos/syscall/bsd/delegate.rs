@@ -28,32 +28,32 @@ pub fn wait4(_cpu: &Cpu, _args: ARG_wait4) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn link(_cpu: &Cpu, _args: ARG_link) -> IoResult<i32> {
+pub fn link(_cpu: &Cpu, _args: ARG_link) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn unlink(_cpu: &Cpu, _args: ARG_unlink) -> IoResult<i32> {
+pub fn unlink(_cpu: &Cpu, _args: ARG_unlink) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sys_chdir(_cpu: &Cpu, _args: ARG_sys_chdir) -> IoResult<i32> {
+pub fn sys_chdir(_cpu: &Cpu, _args: ARG_sys_chdir) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn mknod(_cpu: &Cpu, _args: ARG_mknod) -> IoResult<i32> {
+pub fn mknod(_cpu: &Cpu, _args: ARG_mknod) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn chmod(_cpu: &Cpu, _args: ARG_chmod) -> IoResult<i32> {
+pub fn chmod(_cpu: &Cpu, _args: ARG_chmod) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn chown(_cpu: &Cpu, _args: ARG_chown) -> IoResult<i32> {
+pub fn chown(_cpu: &Cpu, _args: ARG_chown) -> IoResult<()> {
     todo!();
 }
 
@@ -88,77 +88,77 @@ pub fn accept(_cpu: &Cpu, _args: ARG_accept) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn getpeername(_cpu: &Cpu, _args: ARG_getpeername) -> IoResult<i32> {
+pub fn getpeername(_cpu: &Cpu, _args: ARG_getpeername) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn getsockname(_cpu: &Cpu, _args: ARG_getsockname) -> IoResult<i32> {
+pub fn getsockname(_cpu: &Cpu, _args: ARG_getsockname) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn access(_cpu: &Cpu, _args: ARG_access) -> IoResult<i32> {
+pub fn access(_cpu: &Cpu, _args: ARG_access) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn chflags(_cpu: &Cpu, _args: ARG_chflags) -> IoResult<i32> {
+pub fn chflags(_cpu: &Cpu, _args: ARG_chflags) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sigaction(_cpu: &Cpu, _args: ARG_sigaction) -> IoResult<i32> {
+pub fn sigaction(_cpu: &Cpu, _args: ARG_sigaction) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sigprocmask(_cpu: &Cpu, _args: ARG_sigprocmask) -> IoResult<i32> {
+pub fn sigprocmask(_cpu: &Cpu, _args: ARG_sigprocmask) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn getlogin(_cpu: &Cpu, _args: ARG_getlogin) -> IoResult<i32> {
+pub fn getlogin(_cpu: &Cpu, _args: ARG_getlogin) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn setlogin(_cpu: &Cpu, _args: ARG_setlogin) -> IoResult<i32> {
+pub fn setlogin(_cpu: &Cpu, _args: ARG_setlogin) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn acct(_cpu: &Cpu, _args: ARG_acct) -> IoResult<i32> {
+pub fn acct(_cpu: &Cpu, _args: ARG_acct) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sigpending(_cpu: &Cpu, _args: ARG_sigpending) -> IoResult<i32> {
+pub fn sigpending(_cpu: &Cpu, _args: ARG_sigpending) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sigaltstack(_cpu: &Cpu, _args: ARG_sigaltstack) -> IoResult<i32> {
+pub fn sigaltstack(_cpu: &Cpu, _args: ARG_sigaltstack) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn ioctl(_cpu: &Cpu, _args: ARG_ioctl) -> IoResult<i32> {
+pub fn ioctl(_cpu: &Cpu, _args: ARG_ioctl) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn reboot(_cpu: &Cpu, _args: ARG_reboot) -> IoResult<i32> {
+pub fn reboot(_cpu: &Cpu, _args: ARG_reboot) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn revoke(_cpu: &Cpu, _args: ARG_revoke) -> IoResult<i32> {
+pub fn revoke(_cpu: &Cpu, _args: ARG_revoke) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn symlink(_cpu: &Cpu, _args: ARG_symlink) -> IoResult<i32> {
+pub fn symlink(_cpu: &Cpu, _args: ARG_symlink) -> IoResult<()> {
     todo!();
 }
 
@@ -168,47 +168,47 @@ pub fn readlink(_cpu: &Cpu, _args: ARG_readlink) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn execve(_cpu: &Cpu, _args: ARG_execve) -> IoResult<i32> {
+pub fn execve(_cpu: &Cpu, _args: ARG_execve) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn chroot(_cpu: &Cpu, _args: ARG_chroot) -> IoResult<i32> {
+pub fn chroot(_cpu: &Cpu, _args: ARG_chroot) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn msync(_cpu: &Cpu, _args: ARG_msync) -> IoResult<i32> {
+pub fn msync(_cpu: &Cpu, _args: ARG_msync) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn oslog_coproc_reg(_cpu: &Cpu, _args: ARG_oslog_coproc_reg) -> IoResult<i32> {
+pub fn oslog_coproc_reg(_cpu: &Cpu, _args: ARG_oslog_coproc_reg) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn oslog_coproc(_cpu: &Cpu, _args: ARG_oslog_coproc) -> IoResult<i32> {
+pub fn oslog_coproc(_cpu: &Cpu, _args: ARG_oslog_coproc) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn munmap(_cpu: &Cpu, _args: ARG_munmap) -> IoResult<i32> {
+pub fn munmap(_cpu: &Cpu, _args: ARG_munmap) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn mprotect(_cpu: &Cpu, _args: ARG_mprotect) -> IoResult<i32> {
+pub fn mprotect(_cpu: &Cpu, _args: ARG_mprotect) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn madvise(_cpu: &Cpu, _args: ARG_madvise) -> IoResult<i32> {
+pub fn madvise(_cpu: &Cpu, _args: ARG_madvise) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn mincore(_cpu: &Cpu, _args: ARG_mincore) -> IoResult<i32> {
+pub fn mincore(_cpu: &Cpu, _args: ARG_mincore) -> IoResult<()> {
     todo!();
 }
 
@@ -218,17 +218,17 @@ pub fn getgroups(_cpu: &Cpu, _args: ARG_getgroups) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn setgroups(_cpu: &Cpu, _args: ARG_setgroups) -> IoResult<i32> {
+pub fn setgroups(_cpu: &Cpu, _args: ARG_setgroups) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn setitimer(_cpu: &Cpu, _args: ARG_setitimer) -> IoResult<i32> {
+pub fn setitimer(_cpu: &Cpu, _args: ARG_setitimer) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn getitimer(_cpu: &Cpu, _args: ARG_getitimer) -> IoResult<i32> {
+pub fn getitimer(_cpu: &Cpu, _args: ARG_getitimer) -> IoResult<()> {
     todo!();
 }
 
@@ -238,32 +238,32 @@ pub fn select(_cpu: &Cpu, _args: ARG_select) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn connect(_cpu: &Cpu, _args: ARG_connect) -> IoResult<i32> {
+pub fn connect(_cpu: &Cpu, _args: ARG_connect) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn bind(_cpu: &Cpu, _args: ARG_bind) -> IoResult<i32> {
+pub fn bind(_cpu: &Cpu, _args: ARG_bind) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn setsockopt(_cpu: &Cpu, _args: ARG_setsockopt) -> IoResult<i32> {
+pub fn setsockopt(_cpu: &Cpu, _args: ARG_setsockopt) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn gettimeofday(_cpu: &Cpu, _args: ARG_gettimeofday) -> IoResult<i32> {
+pub fn gettimeofday(_cpu: &Cpu, _args: ARG_gettimeofday) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn getrusage(_cpu: &Cpu, _args: ARG_getrusage) -> IoResult<i32> {
+pub fn getrusage(_cpu: &Cpu, _args: ARG_getrusage) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn getsockopt(_cpu: &Cpu, _args: ARG_getsockopt) -> IoResult<i32> {
+pub fn getsockopt(_cpu: &Cpu, _args: ARG_getsockopt) -> IoResult<()> {
     todo!();
 }
 
@@ -278,17 +278,17 @@ pub fn writev(_cpu: &Cpu, _args: ARG_writev) -> IoResult<isize> {
 }
 
 #[inline]
-pub fn settimeofday(_cpu: &Cpu, _args: ARG_settimeofday) -> IoResult<i32> {
+pub fn settimeofday(_cpu: &Cpu, _args: ARG_settimeofday) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn rename(_cpu: &Cpu, _args: ARG_rename) -> IoResult<i32> {
+pub fn rename(_cpu: &Cpu, _args: ARG_rename) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn mkfifo(_cpu: &Cpu, _args: ARG_mkfifo) -> IoResult<i32> {
+pub fn mkfifo(_cpu: &Cpu, _args: ARG_mkfifo) -> IoResult<()> {
     todo!();
 }
 
@@ -298,37 +298,37 @@ pub fn sendto(_cpu: &Cpu, _args: ARG_sendto) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn socketpair(_cpu: &Cpu, _args: ARG_socketpair) -> IoResult<i32> {
+pub fn socketpair(_cpu: &Cpu, _args: ARG_socketpair) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn mkdir(_cpu: &Cpu, _args: ARG_mkdir) -> IoResult<i32> {
+pub fn mkdir(_cpu: &Cpu, _args: ARG_mkdir) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn rmdir(_cpu: &Cpu, _args: ARG_rmdir) -> IoResult<i32> {
+pub fn rmdir(_cpu: &Cpu, _args: ARG_rmdir) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn utimes(_cpu: &Cpu, _args: ARG_utimes) -> IoResult<i32> {
+pub fn utimes(_cpu: &Cpu, _args: ARG_utimes) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn futimes(_cpu: &Cpu, _args: ARG_futimes) -> IoResult<i32> {
+pub fn futimes(_cpu: &Cpu, _args: ARG_futimes) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn adjtime(_cpu: &Cpu, _args: ARG_adjtime) -> IoResult<i32> {
+pub fn adjtime(_cpu: &Cpu, _args: ARG_adjtime) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn gethostuuid(_cpu: &Cpu, _args: ARG_gethostuuid) -> IoResult<i32> {
+pub fn gethostuuid(_cpu: &Cpu, _args: ARG_gethostuuid) -> IoResult<()> {
     todo!();
 }
 
@@ -343,57 +343,57 @@ pub fn pwrite(_cpu: &Cpu, _args: ARG_pwrite) -> IoResult<isize> {
 }
 
 #[inline]
-pub fn nfssvc(_cpu: &Cpu, _args: ARG_nfssvc) -> IoResult<i32> {
+pub fn nfssvc(_cpu: &Cpu, _args: ARG_nfssvc) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn statfs(_cpu: &Cpu, _args: ARG_statfs) -> IoResult<i32> {
+pub fn statfs(_cpu: &Cpu, _args: ARG_statfs) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn fstatfs(_cpu: &Cpu, _args: ARG_fstatfs) -> IoResult<i32> {
+pub fn fstatfs(_cpu: &Cpu, _args: ARG_fstatfs) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn unmount(_cpu: &Cpu, _args: ARG_unmount) -> IoResult<i32> {
+pub fn unmount(_cpu: &Cpu, _args: ARG_unmount) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn getfh(_cpu: &Cpu, _args: ARG_getfh) -> IoResult<i32> {
+pub fn getfh(_cpu: &Cpu, _args: ARG_getfh) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn quotactl(_cpu: &Cpu, _args: ARG_quotactl) -> IoResult<i32> {
+pub fn quotactl(_cpu: &Cpu, _args: ARG_quotactl) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn mount(_cpu: &Cpu, _args: ARG_mount) -> IoResult<i32> {
+pub fn mount(_cpu: &Cpu, _args: ARG_mount) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn csops(_cpu: &Cpu, _args: ARG_csops) -> IoResult<i32> {
+pub fn csops(_cpu: &Cpu, _args: ARG_csops) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn csops_audittoken(_cpu: &Cpu, _args: ARG_csops_audittoken) -> IoResult<i32> {
+pub fn csops_audittoken(_cpu: &Cpu, _args: ARG_csops_audittoken) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn waitid(_cpu: &Cpu, _args: ARG_waitid) -> IoResult<i32> {
+pub fn waitid(_cpu: &Cpu, _args: ARG_waitid) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn kdebug_typefilter(_cpu: &Cpu, _args: ARG_kdebug_typefilter) -> IoResult<i32> {
+pub fn kdebug_typefilter(_cpu: &Cpu, _args: ARG_kdebug_typefilter) -> IoResult<()> {
     todo!();
 }
 
@@ -403,32 +403,32 @@ pub fn kdebug_trace_string(_cpu: &Cpu, _args: ARG_kdebug_trace_string) -> IoResu
 }
 
 #[inline]
-pub fn sigreturn(_cpu: &Cpu, _args: ARG_sigreturn) -> IoResult<i32> {
+pub fn sigreturn(_cpu: &Cpu, _args: ARG_sigreturn) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sys_panic_with_data(_cpu: &Cpu, _args: ARG_sys_panic_with_data) -> IoResult<i32> {
+pub fn sys_panic_with_data(_cpu: &Cpu, _args: ARG_sys_panic_with_data) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn thread_selfcounts(_cpu: &Cpu, _args: ARG_thread_selfcounts) -> IoResult<i32> {
+pub fn thread_selfcounts(_cpu: &Cpu, _args: ARG_thread_selfcounts) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn stat(_cpu: &Cpu, _args: ARG_stat) -> IoResult<i32> {
+pub fn stat(_cpu: &Cpu, _args: ARG_stat) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sys_fstat(_cpu: &Cpu, _args: ARG_sys_fstat) -> IoResult<i32> {
+pub fn sys_fstat(_cpu: &Cpu, _args: ARG_sys_fstat) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn lstat(_cpu: &Cpu, _args: ARG_lstat) -> IoResult<i32> {
+pub fn lstat(_cpu: &Cpu, _args: ARG_lstat) -> IoResult<()> {
     todo!();
 }
 
@@ -438,12 +438,12 @@ pub fn pathconf(_cpu: &Cpu, _args: ARG_pathconf) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn getrlimit(_cpu: &Cpu, _args: ARG_getrlimit) -> IoResult<i32> {
+pub fn getrlimit(_cpu: &Cpu, _args: ARG_getrlimit) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn setrlimit(_cpu: &Cpu, _args: ARG_setrlimit) -> IoResult<i32> {
+pub fn setrlimit(_cpu: &Cpu, _args: ARG_setrlimit) -> IoResult<()> {
     todo!();
 }
 
@@ -458,27 +458,27 @@ pub fn mmap(_cpu: &Cpu, _args: ARG_mmap) -> IoResult<Uintptr> {
 }
 
 #[inline]
-pub fn truncate(_cpu: &Cpu, _args: ARG_truncate) -> IoResult<i32> {
+pub fn truncate(_cpu: &Cpu, _args: ARG_truncate) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sysctl(_cpu: &Cpu, _args: ARG_sysctl) -> IoResult<i32> {
+pub fn sysctl(_cpu: &Cpu, _args: ARG_sysctl) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn mlock(_cpu: &Cpu, _args: ARG_mlock) -> IoResult<i32> {
+pub fn mlock(_cpu: &Cpu, _args: ARG_mlock) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn munlock(_cpu: &Cpu, _args: ARG_munlock) -> IoResult<i32> {
+pub fn munlock(_cpu: &Cpu, _args: ARG_munlock) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn undelete(_cpu: &Cpu, _args: ARG_undelete) -> IoResult<i32> {
+pub fn undelete(_cpu: &Cpu, _args: ARG_undelete) -> IoResult<()> {
     todo!();
 }
 
@@ -498,47 +498,47 @@ pub fn openat_dprotected_np(_cpu: &Cpu, _args: ARG_openat_dprotected_np) -> IoRe
 }
 
 #[inline]
-pub fn getattrlist(_cpu: &Cpu, _args: ARG_getattrlist) -> IoResult<i32> {
+pub fn getattrlist(_cpu: &Cpu, _args: ARG_getattrlist) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn setattrlist(_cpu: &Cpu, _args: ARG_setattrlist) -> IoResult<i32> {
+pub fn setattrlist(_cpu: &Cpu, _args: ARG_setattrlist) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn getdirentriesattr(_cpu: &Cpu, _args: ARG_getdirentriesattr) -> IoResult<i32> {
+pub fn getdirentriesattr(_cpu: &Cpu, _args: ARG_getdirentriesattr) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn exchangedata(_cpu: &Cpu, _args: ARG_exchangedata) -> IoResult<i32> {
+pub fn exchangedata(_cpu: &Cpu, _args: ARG_exchangedata) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn searchfs(_cpu: &Cpu, _args: ARG_searchfs) -> IoResult<i32> {
+pub fn searchfs(_cpu: &Cpu, _args: ARG_searchfs) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn delete(_cpu: &Cpu, _args: ARG_delete) -> IoResult<i32> {
+pub fn delete(_cpu: &Cpu, _args: ARG_delete) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn copyfile(_cpu: &Cpu, _args: ARG_copyfile) -> IoResult<i32> {
+pub fn copyfile(_cpu: &Cpu, _args: ARG_copyfile) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn fgetattrlist(_cpu: &Cpu, _args: ARG_fgetattrlist) -> IoResult<i32> {
+pub fn fgetattrlist(_cpu: &Cpu, _args: ARG_fgetattrlist) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn fsetattrlist(_cpu: &Cpu, _args: ARG_fsetattrlist) -> IoResult<i32> {
+pub fn fsetattrlist(_cpu: &Cpu, _args: ARG_fsetattrlist) -> IoResult<()> {
     todo!();
 }
 
@@ -558,22 +558,22 @@ pub fn fgetxattr(_cpu: &Cpu, _args: ARG_fgetxattr) -> IoResult<isize> {
 }
 
 #[inline]
-pub fn setxattr(_cpu: &Cpu, _args: ARG_setxattr) -> IoResult<i32> {
+pub fn setxattr(_cpu: &Cpu, _args: ARG_setxattr) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn fsetxattr(_cpu: &Cpu, _args: ARG_fsetxattr) -> IoResult<i32> {
+pub fn fsetxattr(_cpu: &Cpu, _args: ARG_fsetxattr) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn removexattr(_cpu: &Cpu, _args: ARG_removexattr) -> IoResult<i32> {
+pub fn removexattr(_cpu: &Cpu, _args: ARG_removexattr) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn fremovexattr(_cpu: &Cpu, _args: ARG_fremovexattr) -> IoResult<i32> {
+pub fn fremovexattr(_cpu: &Cpu, _args: ARG_fremovexattr) -> IoResult<()> {
     todo!();
 }
 
@@ -588,22 +588,22 @@ pub fn flistxattr(_cpu: &Cpu, _args: ARG_flistxattr) -> IoResult<isize> {
 }
 
 #[inline]
-pub fn fsctl(_cpu: &Cpu, _args: ARG_fsctl) -> IoResult<i32> {
+pub fn fsctl(_cpu: &Cpu, _args: ARG_fsctl) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn initgroups(_cpu: &Cpu, _args: ARG_initgroups) -> IoResult<i32> {
+pub fn initgroups(_cpu: &Cpu, _args: ARG_initgroups) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn posix_spawn(_cpu: &Cpu, _args: ARG_posix_spawn) -> IoResult<i32> {
+pub fn posix_spawn(_cpu: &Cpu, _args: ARG_posix_spawn) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn ffsctl(_cpu: &Cpu, _args: ARG_ffsctl) -> IoResult<i32> {
+pub fn ffsctl(_cpu: &Cpu, _args: ARG_ffsctl) -> IoResult<()> {
     todo!();
 }
 
@@ -613,22 +613,22 @@ pub fn fhopen(_cpu: &Cpu, _args: ARG_fhopen) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn minherit(_cpu: &Cpu, _args: ARG_minherit) -> IoResult<i32> {
+pub fn minherit(_cpu: &Cpu, _args: ARG_minherit) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn semop(_cpu: &Cpu, _args: ARG_semop) -> IoResult<i32> {
+pub fn semop(_cpu: &Cpu, _args: ARG_semop) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn msgctl(_cpu: &Cpu, _args: ARG_msgctl) -> IoResult<i32> {
+pub fn msgctl(_cpu: &Cpu, _args: ARG_msgctl) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn msgsnd(_cpu: &Cpu, _args: ARG_msgsnd) -> IoResult<i32> {
+pub fn msgsnd(_cpu: &Cpu, _args: ARG_msgsnd) -> IoResult<()> {
     todo!();
 }
 
@@ -643,12 +643,12 @@ pub fn shmat(_cpu: &Cpu, _args: ARG_shmat) -> IoResult<Uintptr> {
 }
 
 #[inline]
-pub fn shmctl(_cpu: &Cpu, _args: ARG_shmctl) -> IoResult<i32> {
+pub fn shmctl(_cpu: &Cpu, _args: ARG_shmctl) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn shmdt(_cpu: &Cpu, _args: ARG_shmdt) -> IoResult<i32> {
+pub fn shmdt(_cpu: &Cpu, _args: ARG_shmdt) -> IoResult<()> {
     todo!();
 }
 
@@ -658,7 +658,7 @@ pub fn shm_open(_cpu: &Cpu, _args: ARG_shm_open) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn shm_unlink(_cpu: &Cpu, _args: ARG_shm_unlink) -> IoResult<i32> {
+pub fn shm_unlink(_cpu: &Cpu, _args: ARG_shm_unlink) -> IoResult<()> {
     todo!();
 }
 
@@ -668,32 +668,32 @@ pub fn sem_open(_cpu: &Cpu, _args: ARG_sem_open) -> IoResult<Uintptr> {
 }
 
 #[inline]
-pub fn sem_close(_cpu: &Cpu, _args: ARG_sem_close) -> IoResult<i32> {
+pub fn sem_close(_cpu: &Cpu, _args: ARG_sem_close) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sem_unlink(_cpu: &Cpu, _args: ARG_sem_unlink) -> IoResult<i32> {
+pub fn sem_unlink(_cpu: &Cpu, _args: ARG_sem_unlink) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sem_wait(_cpu: &Cpu, _args: ARG_sem_wait) -> IoResult<i32> {
+pub fn sem_wait(_cpu: &Cpu, _args: ARG_sem_wait) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sem_trywait(_cpu: &Cpu, _args: ARG_sem_trywait) -> IoResult<i32> {
+pub fn sem_trywait(_cpu: &Cpu, _args: ARG_sem_trywait) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sem_post(_cpu: &Cpu, _args: ARG_sem_post) -> IoResult<i32> {
+pub fn sem_post(_cpu: &Cpu, _args: ARG_sem_post) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sys_sysctlbyname(_cpu: &Cpu, _args: ARG_sys_sysctlbyname) -> IoResult<i32> {
+pub fn sys_sysctlbyname(_cpu: &Cpu, _args: ARG_sys_sysctlbyname) -> IoResult<()> {
     todo!();
 }
 
@@ -703,82 +703,82 @@ pub fn open_extended(_cpu: &Cpu, _args: ARG_open_extended) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn umask_extended(_cpu: &Cpu, _args: ARG_umask_extended) -> IoResult<i32> {
+pub fn umask_extended(_cpu: &Cpu, _args: ARG_umask_extended) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn stat_extended(_cpu: &Cpu, _args: ARG_stat_extended) -> IoResult<i32> {
+pub fn stat_extended(_cpu: &Cpu, _args: ARG_stat_extended) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn lstat_extended(_cpu: &Cpu, _args: ARG_lstat_extended) -> IoResult<i32> {
+pub fn lstat_extended(_cpu: &Cpu, _args: ARG_lstat_extended) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sys_fstat_extended(_cpu: &Cpu, _args: ARG_sys_fstat_extended) -> IoResult<i32> {
+pub fn sys_fstat_extended(_cpu: &Cpu, _args: ARG_sys_fstat_extended) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn chmod_extended(_cpu: &Cpu, _args: ARG_chmod_extended) -> IoResult<i32> {
+pub fn chmod_extended(_cpu: &Cpu, _args: ARG_chmod_extended) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn fchmod_extended(_cpu: &Cpu, _args: ARG_fchmod_extended) -> IoResult<i32> {
+pub fn fchmod_extended(_cpu: &Cpu, _args: ARG_fchmod_extended) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn access_extended(_cpu: &Cpu, _args: ARG_access_extended) -> IoResult<i32> {
+pub fn access_extended(_cpu: &Cpu, _args: ARG_access_extended) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn gettid(_cpu: &Cpu, _args: ARG_gettid) -> IoResult<i32> {
+pub fn gettid(_cpu: &Cpu, _args: ARG_gettid) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn setsgroups(_cpu: &Cpu, _args: ARG_setsgroups) -> IoResult<i32> {
+pub fn setsgroups(_cpu: &Cpu, _args: ARG_setsgroups) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn getsgroups(_cpu: &Cpu, _args: ARG_getsgroups) -> IoResult<i32> {
+pub fn getsgroups(_cpu: &Cpu, _args: ARG_getsgroups) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn setwgroups(_cpu: &Cpu, _args: ARG_setwgroups) -> IoResult<i32> {
+pub fn setwgroups(_cpu: &Cpu, _args: ARG_setwgroups) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn getwgroups(_cpu: &Cpu, _args: ARG_getwgroups) -> IoResult<i32> {
+pub fn getwgroups(_cpu: &Cpu, _args: ARG_getwgroups) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn mkfifo_extended(_cpu: &Cpu, _args: ARG_mkfifo_extended) -> IoResult<i32> {
+pub fn mkfifo_extended(_cpu: &Cpu, _args: ARG_mkfifo_extended) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn mkdir_extended(_cpu: &Cpu, _args: ARG_mkdir_extended) -> IoResult<i32> {
+pub fn mkdir_extended(_cpu: &Cpu, _args: ARG_mkdir_extended) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn identitysvc(_cpu: &Cpu, _args: ARG_identitysvc) -> IoResult<i32> {
+pub fn identitysvc(_cpu: &Cpu, _args: ARG_identitysvc) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn shared_region_check_np(_cpu: &Cpu, _args: ARG_shared_region_check_np) -> IoResult<i32> {
+pub fn shared_region_check_np(_cpu: &Cpu, _args: ARG_shared_region_check_np) -> IoResult<()> {
     todo!();
 }
 
@@ -798,7 +798,7 @@ pub fn psynch_rw_yieldwrlock(_cpu: &Cpu, _args: ARG_psynch_rw_yieldwrlock) -> Io
 }
 
 #[inline]
-pub fn psynch_rw_downgrade(_cpu: &Cpu, _args: ARG_psynch_rw_downgrade) -> IoResult<i32> {
+pub fn psynch_rw_downgrade(_cpu: &Cpu, _args: ARG_psynch_rw_downgrade) -> IoResult<()> {
     todo!();
 }
 
@@ -853,12 +853,12 @@ pub fn psynch_rw_unlock2(_cpu: &Cpu, _args: ARG_psynch_rw_unlock2) -> IoResult<u
 }
 
 #[inline]
-pub fn psynch_cvclrprepost(_cpu: &Cpu, _args: ARG_psynch_cvclrprepost) -> IoResult<i32> {
+pub fn psynch_cvclrprepost(_cpu: &Cpu, _args: ARG_psynch_cvclrprepost) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn aio_fsync(_cpu: &Cpu, _args: ARG_aio_fsync) -> IoResult<i32> {
+pub fn aio_fsync(_cpu: &Cpu, _args: ARG_aio_fsync) -> IoResult<()> {
     todo!();
 }
 
@@ -868,7 +868,7 @@ pub fn aio_return(_cpu: &Cpu, _args: ARG_aio_return) -> IoResult<isize> {
 }
 
 #[inline]
-pub fn aio_suspend(_cpu: &Cpu, _args: ARG_aio_suspend) -> IoResult<i32> {
+pub fn aio_suspend(_cpu: &Cpu, _args: ARG_aio_suspend) -> IoResult<()> {
     todo!();
 }
 
@@ -883,37 +883,37 @@ pub fn aio_error(_cpu: &Cpu, _args: ARG_aio_error) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn aio_read(_cpu: &Cpu, _args: ARG_aio_read) -> IoResult<i32> {
+pub fn aio_read(_cpu: &Cpu, _args: ARG_aio_read) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn aio_write(_cpu: &Cpu, _args: ARG_aio_write) -> IoResult<i32> {
+pub fn aio_write(_cpu: &Cpu, _args: ARG_aio_write) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn lio_listio(_cpu: &Cpu, _args: ARG_lio_listio) -> IoResult<i32> {
+pub fn lio_listio(_cpu: &Cpu, _args: ARG_lio_listio) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn iopolicysys(_cpu: &Cpu, _args: ARG_iopolicysys) -> IoResult<i32> {
+pub fn iopolicysys(_cpu: &Cpu, _args: ARG_iopolicysys) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn process_policy(_cpu: &Cpu, _args: ARG_process_policy) -> IoResult<i32> {
+pub fn process_policy(_cpu: &Cpu, _args: ARG_process_policy) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __pthread_sigmask(_cpu: &Cpu, _args: ARG___pthread_sigmask) -> IoResult<i32> {
+pub fn __pthread_sigmask(_cpu: &Cpu, _args: ARG___pthread_sigmask) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __sigwait(_cpu: &Cpu, _args: ARG___sigwait) -> IoResult<i32> {
+pub fn __sigwait(_cpu: &Cpu, _args: ARG___sigwait) -> IoResult<()> {
     todo!();
 }
 
@@ -923,37 +923,37 @@ pub fn proc_info(_cpu: &Cpu, _args: ARG_proc_info) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn sendfile(_cpu: &Cpu, _args: ARG_sendfile) -> IoResult<i32> {
+pub fn sendfile(_cpu: &Cpu, _args: ARG_sendfile) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn stat64(_cpu: &Cpu, _args: ARG_stat64) -> IoResult<i32> {
+pub fn stat64(_cpu: &Cpu, _args: ARG_stat64) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sys_fstat64(_cpu: &Cpu, _args: ARG_sys_fstat64) -> IoResult<i32> {
+pub fn sys_fstat64(_cpu: &Cpu, _args: ARG_sys_fstat64) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn lstat64(_cpu: &Cpu, _args: ARG_lstat64) -> IoResult<i32> {
+pub fn lstat64(_cpu: &Cpu, _args: ARG_lstat64) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn stat64_extended(_cpu: &Cpu, _args: ARG_stat64_extended) -> IoResult<i32> {
+pub fn stat64_extended(_cpu: &Cpu, _args: ARG_stat64_extended) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn lstat64_extended(_cpu: &Cpu, _args: ARG_lstat64_extended) -> IoResult<i32> {
+pub fn lstat64_extended(_cpu: &Cpu, _args: ARG_lstat64_extended) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sys_fstat64_extended(_cpu: &Cpu, _args: ARG_sys_fstat64_extended) -> IoResult<i32> {
+pub fn sys_fstat64_extended(_cpu: &Cpu, _args: ARG_sys_fstat64_extended) -> IoResult<()> {
     todo!();
 }
 
@@ -963,12 +963,12 @@ pub fn getdirentries64(_cpu: &Cpu, _args: ARG_getdirentries64) -> IoResult<isize
 }
 
 #[inline]
-pub fn statfs64(_cpu: &Cpu, _args: ARG_statfs64) -> IoResult<i32> {
+pub fn statfs64(_cpu: &Cpu, _args: ARG_statfs64) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn fstatfs64(_cpu: &Cpu, _args: ARG_fstatfs64) -> IoResult<i32> {
+pub fn fstatfs64(_cpu: &Cpu, _args: ARG_fstatfs64) -> IoResult<()> {
     todo!();
 }
 
@@ -978,42 +978,42 @@ pub fn getfsstat64(_cpu: &Cpu, _args: ARG_getfsstat64) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn __pthread_chdir(_cpu: &Cpu, _args: ARG___pthread_chdir) -> IoResult<i32> {
+pub fn __pthread_chdir(_cpu: &Cpu, _args: ARG___pthread_chdir) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn audit(_cpu: &Cpu, _args: ARG_audit) -> IoResult<i32> {
+pub fn audit(_cpu: &Cpu, _args: ARG_audit) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn auditon(_cpu: &Cpu, _args: ARG_auditon) -> IoResult<i32> {
+pub fn auditon(_cpu: &Cpu, _args: ARG_auditon) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn getauid(_cpu: &Cpu, _args: ARG_getauid) -> IoResult<i32> {
+pub fn getauid(_cpu: &Cpu, _args: ARG_getauid) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn setauid(_cpu: &Cpu, _args: ARG_setauid) -> IoResult<i32> {
+pub fn setauid(_cpu: &Cpu, _args: ARG_setauid) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn getaudit_addr(_cpu: &Cpu, _args: ARG_getaudit_addr) -> IoResult<i32> {
+pub fn getaudit_addr(_cpu: &Cpu, _args: ARG_getaudit_addr) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn setaudit_addr(_cpu: &Cpu, _args: ARG_setaudit_addr) -> IoResult<i32> {
+pub fn setaudit_addr(_cpu: &Cpu, _args: ARG_setaudit_addr) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn auditctl(_cpu: &Cpu, _args: ARG_auditctl) -> IoResult<i32> {
+pub fn auditctl(_cpu: &Cpu, _args: ARG_auditctl) -> IoResult<()> {
     todo!();
 }
 
@@ -1023,7 +1023,7 @@ pub fn bsdthread_create(_cpu: &Cpu, _args: ARG_bsdthread_create) -> IoResult<Uin
 }
 
 #[inline]
-pub fn bsdthread_terminate(_cpu: &Cpu, _args: ARG_bsdthread_terminate) -> IoResult<i32> {
+pub fn bsdthread_terminate(_cpu: &Cpu, _args: ARG_bsdthread_terminate) -> IoResult<()> {
     todo!();
 }
 
@@ -1033,12 +1033,12 @@ pub fn kevent(_cpu: &Cpu, _args: ARG_kevent) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn lchown(_cpu: &Cpu, _args: ARG_lchown) -> IoResult<i32> {
+pub fn lchown(_cpu: &Cpu, _args: ARG_lchown) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn bsdthread_register(_cpu: &Cpu, _args: ARG_bsdthread_register) -> IoResult<i32> {
+pub fn bsdthread_register(_cpu: &Cpu, _args: ARG_bsdthread_register) -> IoResult<()> {
     todo!();
 }
 
@@ -1053,7 +1053,7 @@ pub fn kevent64(_cpu: &Cpu, _args: ARG_kevent64) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn ledger(_cpu: &Cpu, _args: ARG_ledger) -> IoResult<i32> {
+pub fn ledger(_cpu: &Cpu, _args: ARG_ledger) -> IoResult<()> {
     todo!();
 }
 
@@ -1068,57 +1068,57 @@ pub fn kevent_id(_cpu: &Cpu, _args: ARG_kevent_id) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn __mac_execve(_cpu: &Cpu, _args: ARG___mac_execve) -> IoResult<i32> {
+pub fn __mac_execve(_cpu: &Cpu, _args: ARG___mac_execve) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __mac_syscall(_cpu: &Cpu, _args: ARG___mac_syscall) -> IoResult<i32> {
+pub fn __mac_syscall(_cpu: &Cpu, _args: ARG___mac_syscall) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __mac_get_file(_cpu: &Cpu, _args: ARG___mac_get_file) -> IoResult<i32> {
+pub fn __mac_get_file(_cpu: &Cpu, _args: ARG___mac_get_file) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __mac_set_file(_cpu: &Cpu, _args: ARG___mac_set_file) -> IoResult<i32> {
+pub fn __mac_set_file(_cpu: &Cpu, _args: ARG___mac_set_file) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __mac_get_link(_cpu: &Cpu, _args: ARG___mac_get_link) -> IoResult<i32> {
+pub fn __mac_get_link(_cpu: &Cpu, _args: ARG___mac_get_link) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __mac_set_link(_cpu: &Cpu, _args: ARG___mac_set_link) -> IoResult<i32> {
+pub fn __mac_set_link(_cpu: &Cpu, _args: ARG___mac_set_link) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __mac_get_proc(_cpu: &Cpu, _args: ARG___mac_get_proc) -> IoResult<i32> {
+pub fn __mac_get_proc(_cpu: &Cpu, _args: ARG___mac_get_proc) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __mac_set_proc(_cpu: &Cpu, _args: ARG___mac_set_proc) -> IoResult<i32> {
+pub fn __mac_set_proc(_cpu: &Cpu, _args: ARG___mac_set_proc) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __mac_get_fd(_cpu: &Cpu, _args: ARG___mac_get_fd) -> IoResult<i32> {
+pub fn __mac_get_fd(_cpu: &Cpu, _args: ARG___mac_get_fd) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __mac_set_fd(_cpu: &Cpu, _args: ARG___mac_set_fd) -> IoResult<i32> {
+pub fn __mac_set_fd(_cpu: &Cpu, _args: ARG___mac_set_fd) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __mac_get_pid(_cpu: &Cpu, _args: ARG___mac_get_pid) -> IoResult<i32> {
+pub fn __mac_get_pid(_cpu: &Cpu, _args: ARG___mac_get_pid) -> IoResult<()> {
     todo!();
 }
 
@@ -1173,7 +1173,7 @@ pub fn accept_nocancel(_cpu: &Cpu, _args: ARG_accept_nocancel) -> IoResult<i32> 
 }
 
 #[inline]
-pub fn msync_nocancel(_cpu: &Cpu, _args: ARG_msync_nocancel) -> IoResult<i32> {
+pub fn msync_nocancel(_cpu: &Cpu, _args: ARG_msync_nocancel) -> IoResult<()> {
     todo!();
 }
 
@@ -1183,7 +1183,7 @@ pub fn select_nocancel(_cpu: &Cpu, _args: ARG_select_nocancel) -> IoResult<i32> 
 }
 
 #[inline]
-pub fn connect_nocancel(_cpu: &Cpu, _args: ARG_connect_nocancel) -> IoResult<i32> {
+pub fn connect_nocancel(_cpu: &Cpu, _args: ARG_connect_nocancel) -> IoResult<()> {
     todo!();
 }
 
@@ -1213,7 +1213,7 @@ pub fn pwrite_nocancel(_cpu: &Cpu, _args: ARG_pwrite_nocancel) -> IoResult<isize
 }
 
 #[inline]
-pub fn waitid_nocancel(_cpu: &Cpu, _args: ARG_waitid_nocancel) -> IoResult<i32> {
+pub fn waitid_nocancel(_cpu: &Cpu, _args: ARG_waitid_nocancel) -> IoResult<()> {
     todo!();
 }
 
@@ -1223,7 +1223,7 @@ pub fn poll_nocancel(_cpu: &Cpu, _args: ARG_poll_nocancel) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn msgsnd_nocancel(_cpu: &Cpu, _args: ARG_msgsnd_nocancel) -> IoResult<i32> {
+pub fn msgsnd_nocancel(_cpu: &Cpu, _args: ARG_msgsnd_nocancel) -> IoResult<()> {
     todo!();
 }
 
@@ -1233,32 +1233,32 @@ pub fn msgrcv_nocancel(_cpu: &Cpu, _args: ARG_msgrcv_nocancel) -> IoResult<isize
 }
 
 #[inline]
-pub fn sem_wait_nocancel(_cpu: &Cpu, _args: ARG_sem_wait_nocancel) -> IoResult<i32> {
+pub fn sem_wait_nocancel(_cpu: &Cpu, _args: ARG_sem_wait_nocancel) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn aio_suspend_nocancel(_cpu: &Cpu, _args: ARG_aio_suspend_nocancel) -> IoResult<i32> {
+pub fn aio_suspend_nocancel(_cpu: &Cpu, _args: ARG_aio_suspend_nocancel) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __sigwait_nocancel(_cpu: &Cpu, _args: ARG___sigwait_nocancel) -> IoResult<i32> {
+pub fn __sigwait_nocancel(_cpu: &Cpu, _args: ARG___sigwait_nocancel) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __mac_mount(_cpu: &Cpu, _args: ARG___mac_mount) -> IoResult<i32> {
+pub fn __mac_mount(_cpu: &Cpu, _args: ARG___mac_mount) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __mac_get_mount(_cpu: &Cpu, _args: ARG___mac_get_mount) -> IoResult<i32> {
+pub fn __mac_get_mount(_cpu: &Cpu, _args: ARG___mac_get_mount) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __mac_getfsstat(_cpu: &Cpu, _args: ARG___mac_getfsstat) -> IoResult<i32> {
+pub fn __mac_getfsstat(_cpu: &Cpu, _args: ARG___mac_getfsstat) -> IoResult<()> {
     todo!();
 }
 
@@ -1268,17 +1268,17 @@ pub fn fsgetpath(_cpu: &Cpu, _args: ARG_fsgetpath) -> IoResult<isize> {
 }
 
 #[inline]
-pub fn sys_fileport_makeport(_cpu: &Cpu, _args: ARG_sys_fileport_makeport) -> IoResult<i32> {
+pub fn sys_fileport_makeport(_cpu: &Cpu, _args: ARG_sys_fileport_makeport) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn audit_session_port(_cpu: &Cpu, _args: ARG_audit_session_port) -> IoResult<i32> {
+pub fn audit_session_port(_cpu: &Cpu, _args: ARG_audit_session_port) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn kas_info(_cpu: &Cpu, _args: ARG_kas_info) -> IoResult<i32> {
+pub fn kas_info(_cpu: &Cpu, _args: ARG_kas_info) -> IoResult<()> {
     todo!();
 }
 
@@ -1293,7 +1293,7 @@ pub fn guarded_open_np(_cpu: &Cpu, _args: ARG_guarded_open_np) -> IoResult<i32> 
 }
 
 #[inline]
-pub fn guarded_close_np(_cpu: &Cpu, _args: ARG_guarded_close_np) -> IoResult<i32> {
+pub fn guarded_close_np(_cpu: &Cpu, _args: ARG_guarded_close_np) -> IoResult<()> {
     todo!();
 }
 
@@ -1303,47 +1303,47 @@ pub fn guarded_kqueue_np(_cpu: &Cpu, _args: ARG_guarded_kqueue_np) -> IoResult<i
 }
 
 #[inline]
-pub fn change_fdguard_np(_cpu: &Cpu, _args: ARG_change_fdguard_np) -> IoResult<i32> {
+pub fn change_fdguard_np(_cpu: &Cpu, _args: ARG_change_fdguard_np) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn proc_rlimit_control(_cpu: &Cpu, _args: ARG_proc_rlimit_control) -> IoResult<i32> {
+pub fn proc_rlimit_control(_cpu: &Cpu, _args: ARG_proc_rlimit_control) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn connectx(_cpu: &Cpu, _args: ARG_connectx) -> IoResult<i32> {
+pub fn connectx(_cpu: &Cpu, _args: ARG_connectx) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn memorystatus_get_level(_cpu: &Cpu, _args: ARG_memorystatus_get_level) -> IoResult<i32> {
+pub fn memorystatus_get_level(_cpu: &Cpu, _args: ARG_memorystatus_get_level) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sfi_ctl(_cpu: &Cpu, _args: ARG_sfi_ctl) -> IoResult<i32> {
+pub fn sfi_ctl(_cpu: &Cpu, _args: ARG_sfi_ctl) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn sfi_pidctl(_cpu: &Cpu, _args: ARG_sfi_pidctl) -> IoResult<i32> {
+pub fn sfi_pidctl(_cpu: &Cpu, _args: ARG_sfi_pidctl) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn coalition(_cpu: &Cpu, _args: ARG_coalition) -> IoResult<i32> {
+pub fn coalition(_cpu: &Cpu, _args: ARG_coalition) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn coalition_info(_cpu: &Cpu, _args: ARG_coalition_info) -> IoResult<i32> {
+pub fn coalition_info(_cpu: &Cpu, _args: ARG_coalition_info) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn necp_match_policy(_cpu: &Cpu, _args: ARG_necp_match_policy) -> IoResult<i32> {
+pub fn necp_match_policy(_cpu: &Cpu, _args: ARG_necp_match_policy) -> IoResult<()> {
     todo!();
 }
 
@@ -1353,7 +1353,7 @@ pub fn getattrlistbulk(_cpu: &Cpu, _args: ARG_getattrlistbulk) -> IoResult<i32> 
 }
 
 #[inline]
-pub fn clonefileat(_cpu: &Cpu, _args: ARG_clonefileat) -> IoResult<i32> {
+pub fn clonefileat(_cpu: &Cpu, _args: ARG_clonefileat) -> IoResult<()> {
     todo!();
 }
 
@@ -1368,42 +1368,42 @@ pub fn openat_nocancel(_cpu: &Cpu, _args: ARG_openat_nocancel) -> IoResult<i32> 
 }
 
 #[inline]
-pub fn renameat(_cpu: &Cpu, _args: ARG_renameat) -> IoResult<i32> {
+pub fn renameat(_cpu: &Cpu, _args: ARG_renameat) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn faccessat(_cpu: &Cpu, _args: ARG_faccessat) -> IoResult<i32> {
+pub fn faccessat(_cpu: &Cpu, _args: ARG_faccessat) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn fchmodat(_cpu: &Cpu, _args: ARG_fchmodat) -> IoResult<i32> {
+pub fn fchmodat(_cpu: &Cpu, _args: ARG_fchmodat) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn fchownat(_cpu: &Cpu, _args: ARG_fchownat) -> IoResult<i32> {
+pub fn fchownat(_cpu: &Cpu, _args: ARG_fchownat) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn fstatat(_cpu: &Cpu, _args: ARG_fstatat) -> IoResult<i32> {
+pub fn fstatat(_cpu: &Cpu, _args: ARG_fstatat) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn fstatat64(_cpu: &Cpu, _args: ARG_fstatat64) -> IoResult<i32> {
+pub fn fstatat64(_cpu: &Cpu, _args: ARG_fstatat64) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn linkat(_cpu: &Cpu, _args: ARG_linkat) -> IoResult<i32> {
+pub fn linkat(_cpu: &Cpu, _args: ARG_linkat) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn unlinkat(_cpu: &Cpu, _args: ARG_unlinkat) -> IoResult<i32> {
+pub fn unlinkat(_cpu: &Cpu, _args: ARG_unlinkat) -> IoResult<()> {
     todo!();
 }
 
@@ -1413,17 +1413,17 @@ pub fn readlinkat(_cpu: &Cpu, _args: ARG_readlinkat) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn symlinkat(_cpu: &Cpu, _args: ARG_symlinkat) -> IoResult<i32> {
+pub fn symlinkat(_cpu: &Cpu, _args: ARG_symlinkat) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn mkdirat(_cpu: &Cpu, _args: ARG_mkdirat) -> IoResult<i32> {
+pub fn mkdirat(_cpu: &Cpu, _args: ARG_mkdirat) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn getattrlistat(_cpu: &Cpu, _args: ARG_getattrlistat) -> IoResult<i32> {
+pub fn getattrlistat(_cpu: &Cpu, _args: ARG_getattrlistat) -> IoResult<()> {
     todo!();
 }
 
@@ -1448,7 +1448,7 @@ pub fn sendmsg_x(_cpu: &Cpu, _args: ARG_sendmsg_x) -> IoResult<isize> {
 }
 
 #[inline]
-pub fn csrctl(_cpu: &Cpu, _args: ARG_csrctl) -> IoResult<i32> {
+pub fn csrctl(_cpu: &Cpu, _args: ARG_csrctl) -> IoResult<()> {
     todo!();
 }
 
@@ -1476,12 +1476,12 @@ pub fn guarded_writev_np(_cpu: &Cpu, _args: ARG_guarded_writev_np) -> IoResult<i
 }
 
 #[inline]
-pub fn renameatx_np(_cpu: &Cpu, _args: ARG_renameatx_np) -> IoResult<i32> {
+pub fn renameatx_np(_cpu: &Cpu, _args: ARG_renameatx_np) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn mremap_encrypted(_cpu: &Cpu, _args: ARG_mremap_encrypted) -> IoResult<i32> {
+pub fn mremap_encrypted(_cpu: &Cpu, _args: ARG_mremap_encrypted) -> IoResult<()> {
     todo!();
 }
 
@@ -1489,12 +1489,12 @@ pub fn mremap_encrypted(_cpu: &Cpu, _args: ARG_mremap_encrypted) -> IoResult<i32
 pub fn stack_snapshot_with_config(
     _cpu: &Cpu,
     _args: ARG_stack_snapshot_with_config,
-) -> IoResult<i32> {
+) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn microstackshot(_cpu: &Cpu, _args: ARG_microstackshot) -> IoResult<i32> {
+pub fn microstackshot(_cpu: &Cpu, _args: ARG_microstackshot) -> IoResult<()> {
     todo!();
 }
 
@@ -1504,17 +1504,17 @@ pub fn grab_pgo_data(_cpu: &Cpu, _args: ARG_grab_pgo_data) -> IoResult<isize> {
 }
 
 #[inline]
-pub fn persona(_cpu: &Cpu, _args: ARG_persona) -> IoResult<i32> {
+pub fn persona(_cpu: &Cpu, _args: ARG_persona) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn work_interval_ctl(_cpu: &Cpu, _args: ARG_work_interval_ctl) -> IoResult<i32> {
+pub fn work_interval_ctl(_cpu: &Cpu, _args: ARG_work_interval_ctl) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn getentropy(_cpu: &Cpu, _args: ARG_getentropy) -> IoResult<i32> {
+pub fn getentropy(_cpu: &Cpu, _args: ARG_getentropy) -> IoResult<()> {
     todo!();
 }
 
@@ -1529,22 +1529,22 @@ pub fn __nexus_open(_cpu: &Cpu, _args: ARG___nexus_open) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn __nexus_register(_cpu: &Cpu, _args: ARG___nexus_register) -> IoResult<i32> {
+pub fn __nexus_register(_cpu: &Cpu, _args: ARG___nexus_register) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __nexus_create(_cpu: &Cpu, _args: ARG___nexus_create) -> IoResult<i32> {
+pub fn __nexus_create(_cpu: &Cpu, _args: ARG___nexus_create) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __nexus_get_opt(_cpu: &Cpu, _args: ARG___nexus_get_opt) -> IoResult<i32> {
+pub fn __nexus_get_opt(_cpu: &Cpu, _args: ARG___nexus_get_opt) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __nexus_set_opt(_cpu: &Cpu, _args: ARG___nexus_set_opt) -> IoResult<i32> {
+pub fn __nexus_set_opt(_cpu: &Cpu, _args: ARG___nexus_set_opt) -> IoResult<()> {
     todo!();
 }
 
@@ -1554,17 +1554,17 @@ pub fn __channel_open(_cpu: &Cpu, _args: ARG___channel_open) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn __channel_get_info(_cpu: &Cpu, _args: ARG___channel_get_info) -> IoResult<i32> {
+pub fn __channel_get_info(_cpu: &Cpu, _args: ARG___channel_get_info) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __channel_get_opt(_cpu: &Cpu, _args: ARG___channel_get_opt) -> IoResult<i32> {
+pub fn __channel_get_opt(_cpu: &Cpu, _args: ARG___channel_get_opt) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn __channel_set_opt(_cpu: &Cpu, _args: ARG___channel_set_opt) -> IoResult<i32> {
+pub fn __channel_set_opt(_cpu: &Cpu, _args: ARG___channel_set_opt) -> IoResult<()> {
     todo!();
 }
 
@@ -1579,17 +1579,17 @@ pub fn sys_ulock_wake(_cpu: &Cpu, _args: ARG_sys_ulock_wake) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn fclonefileat(_cpu: &Cpu, _args: ARG_fclonefileat) -> IoResult<i32> {
+pub fn fclonefileat(_cpu: &Cpu, _args: ARG_fclonefileat) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn fs_snapshot(_cpu: &Cpu, _args: ARG_fs_snapshot) -> IoResult<i32> {
+pub fn fs_snapshot(_cpu: &Cpu, _args: ARG_fs_snapshot) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn terminate_with_payload(_cpu: &Cpu, _args: ARG_terminate_with_payload) -> IoResult<i32> {
+pub fn terminate_with_payload(_cpu: &Cpu, _args: ARG_terminate_with_payload) -> IoResult<()> {
     todo!();
 }
 
@@ -1599,12 +1599,12 @@ pub fn abort_with_payload(_cpu: &Cpu, _args: ARG_abort_with_payload) -> IoResult
 }
 
 #[inline]
-pub fn necp_session_action(_cpu: &Cpu, _args: ARG_necp_session_action) -> IoResult<i32> {
+pub fn necp_session_action(_cpu: &Cpu, _args: ARG_necp_session_action) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn setattrlistat(_cpu: &Cpu, _args: ARG_setattrlistat) -> IoResult<i32> {
+pub fn setattrlistat(_cpu: &Cpu, _args: ARG_setattrlistat) -> IoResult<()> {
     todo!();
 }
 
@@ -1614,7 +1614,7 @@ pub fn net_qos_guideline(_cpu: &Cpu, _args: ARG_net_qos_guideline) -> IoResult<i
 }
 
 #[inline]
-pub fn fmount(_cpu: &Cpu, _args: ARG_fmount) -> IoResult<i32> {
+pub fn fmount(_cpu: &Cpu, _args: ARG_fmount) -> IoResult<()> {
     todo!();
 }
 
@@ -1624,12 +1624,12 @@ pub fn ntp_adjtime(_cpu: &Cpu, _args: ARG_ntp_adjtime) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn ntp_gettime(_cpu: &Cpu, _args: ARG_ntp_gettime) -> IoResult<i32> {
+pub fn ntp_gettime(_cpu: &Cpu, _args: ARG_ntp_gettime) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn os_fault_with_payload(_cpu: &Cpu, _args: ARG_os_fault_with_payload) -> IoResult<i32> {
+pub fn os_fault_with_payload(_cpu: &Cpu, _args: ARG_os_fault_with_payload) -> IoResult<()> {
     todo!();
 }
 
@@ -1639,12 +1639,12 @@ pub fn kqueue_workloop_ctl(_cpu: &Cpu, _args: ARG_kqueue_workloop_ctl) -> IoResu
 }
 
 #[inline]
-pub fn coalition_ledger(_cpu: &Cpu, _args: ARG_coalition_ledger) -> IoResult<i32> {
+pub fn coalition_ledger(_cpu: &Cpu, _args: ARG_coalition_ledger) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn log_data(_cpu: &Cpu, _args: ARG_log_data) -> IoResult<i32> {
+pub fn log_data(_cpu: &Cpu, _args: ARG_log_data) -> IoResult<()> {
     todo!();
 }
 
@@ -1652,22 +1652,22 @@ pub fn log_data(_cpu: &Cpu, _args: ARG_log_data) -> IoResult<i32> {
 pub fn shared_region_map_and_slide_2_np(
     _cpu: &Cpu,
     _args: ARG_shared_region_map_and_slide_2_np,
-) -> IoResult<i32> {
+) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn pivot_root(_cpu: &Cpu, _args: ARG_pivot_root) -> IoResult<i32> {
+pub fn pivot_root(_cpu: &Cpu, _args: ARG_pivot_root) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn task_inspect_for_pid(_cpu: &Cpu, _args: ARG_task_inspect_for_pid) -> IoResult<i32> {
+pub fn task_inspect_for_pid(_cpu: &Cpu, _args: ARG_task_inspect_for_pid) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn task_read_for_pid(_cpu: &Cpu, _args: ARG_task_read_for_pid) -> IoResult<i32> {
+pub fn task_read_for_pid(_cpu: &Cpu, _args: ARG_task_read_for_pid) -> IoResult<()> {
     todo!();
 }
 
@@ -1702,17 +1702,17 @@ pub fn proc_info_extended_id(_cpu: &Cpu, _args: ARG_proc_info_extended_id) -> Io
 }
 
 #[inline]
-pub fn tracker_action(_cpu: &Cpu, _args: ARG_tracker_action) -> IoResult<i32> {
+pub fn tracker_action(_cpu: &Cpu, _args: ARG_tracker_action) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn graftdmg(_cpu: &Cpu, _args: ARG_graftdmg) -> IoResult<i32> {
+pub fn graftdmg(_cpu: &Cpu, _args: ARG_graftdmg) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn map_with_linking_np(_cpu: &Cpu, _args: ARG_map_with_linking_np) -> IoResult<i32> {
+pub fn map_with_linking_np(_cpu: &Cpu, _args: ARG_map_with_linking_np) -> IoResult<()> {
     todo!();
 }
 
@@ -1722,21 +1722,21 @@ pub fn freadlink(_cpu: &Cpu, _args: ARG_freadlink) -> IoResult<i32> {
 }
 
 #[inline]
-pub fn sys_record_system_event(_cpu: &Cpu, _args: ARG_sys_record_system_event) -> IoResult<i32> {
+pub fn sys_record_system_event(_cpu: &Cpu, _args: ARG_sys_record_system_event) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn mkfifoat(_cpu: &Cpu, _args: ARG_mkfifoat) -> IoResult<i32> {
+pub fn mkfifoat(_cpu: &Cpu, _args: ARG_mkfifoat) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn mknodat(_cpu: &Cpu, _args: ARG_mknodat) -> IoResult<i32> {
+pub fn mknodat(_cpu: &Cpu, _args: ARG_mknodat) -> IoResult<()> {
     todo!();
 }
 
 #[inline]
-pub fn ungraftdmg(_cpu: &Cpu, _args: ARG_ungraftdmg) -> IoResult<i32> {
+pub fn ungraftdmg(_cpu: &Cpu, _args: ARG_ungraftdmg) -> IoResult<()> {
     todo!();
 }
