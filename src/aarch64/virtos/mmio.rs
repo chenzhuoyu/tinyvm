@@ -9,6 +9,7 @@ pub enum MmioKind {
     Write,
     WriteAtomic,
     Execution,
+    Population,
 }
 
 #[derive(Debug, Clone, Copy)]

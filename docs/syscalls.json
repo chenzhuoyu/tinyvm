@@ -1,0 +1,2425 @@
+{
+  "read": {
+    "cbuf": {
+      "out_bytes_arg": "nbyte"
+    }
+  },
+  "write": {
+    "cbuf": {
+      "in_bytes_arg": "nbyte"
+    }
+  },
+  "open": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "wait4": {
+    "status": {
+      "out_fixed": 4
+    },
+    "rusage": {
+      "out_fixed": 144
+    }
+  },
+  "link": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "link": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "unlink": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "sys_chdir": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "mknod": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "chmod": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "chown": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "getfsstat": {
+    "buf": {
+      "out_bytes_arg": "bufsize"
+    }
+  },
+  "ptrace": {
+    "addr": {
+      "dep": "req"
+    }
+  },
+  "recvmsg": {
+    "msg": {
+      "dep": "inout_msghdr: 48; nested sizes from msg_iovlen, msg_namelen, msg_controllen"
+    }
+  },
+  "sendmsg": {
+    "msg": {
+      "dep": "in_msghdr: 48; nested sizes from msg_iovlen, msg_namelen, msg_controllen"
+    }
+  },
+  "recvfrom": {
+    "buf": {
+      "out_bytes_arg": "len"
+    },
+    "from": {
+      "out_len_ptr": "fromlenaddr"
+    },
+    "fromlenaddr": {
+      "inout_fixed": 4
+    }
+  },
+  "accept": {
+    "name": {
+      "out_len_ptr": "anamelen"
+    },
+    "anamelen": {
+      "inout_fixed": 4
+    }
+  },
+  "getpeername": {
+    "asa": {
+      "out_len_ptr": "alen"
+    },
+    "alen": {
+      "inout_fixed": 4
+    }
+  },
+  "getsockname": {
+    "asa": {
+      "out_len_ptr": "alen"
+    },
+    "alen": {
+      "inout_fixed": 4
+    }
+  },
+  "access": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "chflags": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "sigaction": {
+    "nsa": {
+      "in_fixed": 16
+    },
+    "osa": {
+      "out_fixed": 16
+    }
+  },
+  "sigprocmask": {
+    "mask": {
+      "in_fixed": 4
+    },
+    "omask": {
+      "out_fixed": 4
+    }
+  },
+  "getlogin": {
+    "namebuf": {
+      "out_bytes_arg": "namelen"
+    }
+  },
+  "setlogin": {
+    "namebuf": {
+      "in_string": "nul-terminated"
+    }
+  },
+  "acct": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "sigpending": {
+    "osv": {
+      "out_fixed": 24
+    }
+  },
+  "sigaltstack": {
+    "nss": {
+      "in_fixed": 24
+    },
+    "oss": {
+      "out_fixed": 24
+    }
+  },
+  "ioctl": {
+    "data": {
+      "dep": "com"
+    }
+  },
+  "reboot": {
+    "msg": {
+      "in_string": "nul-terminated"
+    }
+  },
+  "revoke": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "symlink": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "link": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "readlink": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "buf": {
+      "out_bytes_arg": "count"
+    }
+  },
+  "execve": {
+    "fname": {
+      "in_string": "nul-terminated path"
+    },
+    "argp": {
+      "dep": "in_string_array: nul-terminated argv vector; strings nul-terminated; bounded by exec limits"
+    },
+    "envp": {
+      "dep": "in_string_array: nul-terminated env vector; strings nul-terminated; bounded by exec limits"
+    }
+  },
+  "chroot": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "msync": {
+    "addr": {
+      "addr_range": "len"
+    }
+  },
+  "oslog_coproc_reg": {
+    "uuid": {
+      "in_string": "nul-terminated"
+    },
+    "file_path": {
+      "in_bytes_arg": "file_path_len"
+    }
+  },
+  "oslog_coproc": {
+    "buff": {
+      "in_bytes_arg": "buff_len"
+    },
+    "uuid": {
+      "in_string": "nul-terminated"
+    }
+  },
+  "munmap": {
+    "addr": {
+      "addr_range": "len"
+    }
+  },
+  "mprotect": {
+    "addr": {
+      "addr_range": "len"
+    }
+  },
+  "madvise": {
+    "addr": {
+      "addr_range": "len"
+    }
+  },
+  "mincore": {
+    "addr": {
+      "addr_range": "len"
+    },
+    "vec": {
+      "dep": "out_pages_for_range: addr,len"
+    }
+  },
+  "getgroups": {
+    "gidset": {
+      "out_count_arg": "gidsetsize * 4"
+    }
+  },
+  "setgroups": {
+    "gidset": {
+      "in_count_arg": "gidsetsize * 4"
+    }
+  },
+  "setitimer": {
+    "itv": {
+      "in_fixed": 32
+    },
+    "oitv": {
+      "out_fixed": 32
+    }
+  },
+  "getitimer": {
+    "itv": {
+      "out_fixed": 32
+    }
+  },
+  "sys_fcntl": {
+    "arg": {
+      "dep": "cmd"
+    }
+  },
+  "select": {
+    "in": {
+      "dep": "inout_fdset: nd"
+    },
+    "ou": {
+      "dep": "inout_fdset: nd"
+    },
+    "ex": {
+      "dep": "inout_fdset: nd"
+    },
+    "tv": {
+      "in_fixed": 16
+    }
+  },
+  "connect": {
+    "name": {
+      "in_bytes_arg": "namelen"
+    }
+  },
+  "bind": {
+    "name": {
+      "in_bytes_arg": "namelen"
+    }
+  },
+  "setsockopt": {
+    "val": {
+      "in_bytes_arg": "valsize"
+    }
+  },
+  "gettimeofday": {
+    "tp": {
+      "out_fixed": 16
+    },
+    "tzp": {
+      "out_fixed": 8
+    },
+    "mach_absolute_time": {
+      "out_fixed": 8
+    }
+  },
+  "getrusage": {
+    "rusage": {
+      "out_fixed": 144
+    }
+  },
+  "getsockopt": {
+    "val": {
+      "out_len_ptr": "avalsize"
+    },
+    "avalsize": {
+      "inout_fixed": 4
+    }
+  },
+  "readv": {
+    "iovp": {
+      "dep": "out_iovec_array: iovcnt * 16; nested iov_base sizes from iov_len"
+    }
+  },
+  "writev": {
+    "iovp": {
+      "dep": "in_iovec_array: iovcnt * 16; nested iov_base sizes from iov_len"
+    }
+  },
+  "settimeofday": {
+    "tv": {
+      "in_fixed": 16
+    },
+    "tzp": {
+      "in_fixed": 8
+    }
+  },
+  "rename": {
+    "from": {
+      "in_string": "nul-terminated path"
+    },
+    "to": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "mkfifo": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "sendto": {
+    "buf": {
+      "in_bytes_arg": "len"
+    },
+    "to": {
+      "in_bytes_arg": "tolen"
+    }
+  },
+  "socketpair": {
+    "rsv": {
+      "out_fixed": "2 * 4"
+    }
+  },
+  "mkdir": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "rmdir": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "utimes": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "tptr": {
+      "in_fixed": "2 * 16"
+    }
+  },
+  "futimes": {
+    "tptr": {
+      "in_fixed": "2 * 16"
+    }
+  },
+  "adjtime": {
+    "delta": {
+      "in_fixed": 16
+    },
+    "olddelta": {
+      "out_fixed": 16
+    }
+  },
+  "gethostuuid": {
+    "uuid_buf": {
+      "out_fixed": 16
+    },
+    "timeoutp": {
+      "in_fixed": 16
+    }
+  },
+  "pread": {
+    "buf": {
+      "out_bytes_arg": "nbyte"
+    }
+  },
+  "pwrite": {
+    "buf": {
+      "in_bytes_arg": "nbyte"
+    }
+  },
+  "nfssvc": {
+    "argp": {
+      "dep": "flag"
+    }
+  },
+  "statfs": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "buf": {
+      "out_fixed": 2168
+    }
+  },
+  "fstatfs": {
+    "buf": {
+      "out_fixed": 2168
+    }
+  },
+  "unmount": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "getfh": {
+    "fname": {
+      "in_string": "nul-terminated path"
+    },
+    "fhp": {
+      "out_fixed": 132
+    }
+  },
+  "quotactl": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "arg": {
+      "dep": "cmd"
+    }
+  },
+  "mount": {
+    "type": {
+      "in_string": "nul-terminated"
+    },
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "data": {
+      "dep": "type,flags"
+    }
+  },
+  "csops": {
+    "useraddr": {
+      "dep": "ops"
+    }
+  },
+  "csops_audittoken": {
+    "useraddr": {
+      "dep": "ops"
+    },
+    "uaudittoken": {
+      "in_fixed": 32
+    }
+  },
+  "waitid": {
+    "infop": {
+      "out_fixed": 104
+    }
+  },
+  "kdebug_typefilter": {
+    "addr": {
+      "out_fixed": 8
+    },
+    "size": {
+      "addr_value": "not dereferenced"
+    }
+  },
+  "kdebug_trace_string": {
+    "str": {
+      "in_string": "nul-terminated"
+    }
+  },
+  "sigreturn": {
+    "uctx": {
+      "in_fixed": 936
+    },
+    "token": {
+      "addr_value": "not dereferenced"
+    }
+  },
+  "sys_panic_with_data": {
+    "uuid": {
+      "in_fixed": 16
+    },
+    "addr": {
+      "in_bytes_arg": "len"
+    },
+    "msg": {
+      "in_string": "nul-terminated"
+    }
+  },
+  "thread_selfcounts": {
+    "buf": {
+      "out_bytes_arg": "size"
+    }
+  },
+  "stat": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "ub": {
+      "out_fixed": 144
+    }
+  },
+  "sys_fstat": {
+    "ub": {
+      "out_fixed": 144
+    }
+  },
+  "lstat": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "ub": {
+      "out_fixed": 144
+    }
+  },
+  "pathconf": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "getrlimit": {
+    "rlp": {
+      "out_fixed": 16
+    }
+  },
+  "setrlimit": {
+    "rlp": {
+      "in_fixed": 16
+    }
+  },
+  "getdirentries": {
+    "buf": {
+      "out_bytes_arg": "count"
+    },
+    "basep": {
+      "out_fixed": 8
+    }
+  },
+  "mmap": {
+    "addr": {
+      "addr_range": "len"
+    }
+  },
+  "truncate": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "sysctl": {
+    "name": {
+      "in_count_arg": "namelen * 4"
+    },
+    "old": {
+      "out_len_ptr": "oldlenp"
+    },
+    "oldlenp": {
+      "inout_fixed": 8
+    },
+    "new": {
+      "in_bytes_arg": "newlen"
+    }
+  },
+  "mlock": {
+    "addr": {
+      "addr_range": "len"
+    }
+  },
+  "munlock": {
+    "addr": {
+      "addr_range": "len"
+    }
+  },
+  "undelete": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "open_dprotected_np": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "fsgetpath_ext": {
+    "buf": {
+      "out_bytes_arg": "bufsize"
+    },
+    "fsid": {
+      "in_fixed": 8
+    }
+  },
+  "openat_dprotected_np": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "getattrlist": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "alist": {
+      "in_fixed": 24
+    },
+    "attributeBuffer": {
+      "out_bytes_arg": "bufferSize"
+    }
+  },
+  "setattrlist": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "alist": {
+      "in_fixed": 24
+    },
+    "attributeBuffer": {
+      "in_bytes_arg": "bufferSize"
+    }
+  },
+  "getdirentriesattr": {
+    "alist": {
+      "in_fixed": 24
+    },
+    "buffer": {
+      "out_bytes_arg": "buffersize"
+    },
+    "count": {
+      "inout_fixed": 8
+    },
+    "basep": {
+      "out_fixed": 8
+    },
+    "newstate": {
+      "out_fixed": 8
+    }
+  },
+  "exchangedata": {
+    "path1": {
+      "in_string": "nul-terminated path"
+    },
+    "path2": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "searchfs": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "searchblock": {
+      "in_fixed": 104
+    },
+    "nummatches": {
+      "out_fixed": 4
+    },
+    "state": {
+      "inout_fixed": 556
+    }
+  },
+  "delete": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "copyfile": {
+    "from": {
+      "in_string": "nul-terminated path"
+    },
+    "to": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "fgetattrlist": {
+    "alist": {
+      "in_fixed": 24
+    },
+    "attributeBuffer": {
+      "out_bytes_arg": "bufferSize"
+    }
+  },
+  "fsetattrlist": {
+    "alist": {
+      "in_fixed": 24
+    },
+    "attributeBuffer": {
+      "in_bytes_arg": "bufferSize"
+    }
+  },
+  "poll": {
+    "fds": {
+      "inout_count_arg": "nfds * 8"
+    }
+  },
+  "getxattr": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "attrname": {
+      "in_string": "nul-terminated"
+    },
+    "value": {
+      "out_bytes_arg": "size"
+    }
+  },
+  "fgetxattr": {
+    "attrname": {
+      "in_string": "nul-terminated"
+    },
+    "value": {
+      "out_bytes_arg": "size"
+    }
+  },
+  "setxattr": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "attrname": {
+      "in_string": "nul-terminated"
+    },
+    "value": {
+      "in_bytes_arg": "size"
+    }
+  },
+  "fsetxattr": {
+    "attrname": {
+      "in_string": "nul-terminated"
+    },
+    "value": {
+      "in_bytes_arg": "size"
+    }
+  },
+  "removexattr": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "attrname": {
+      "in_string": "nul-terminated"
+    }
+  },
+  "fremovexattr": {
+    "attrname": {
+      "in_string": "nul-terminated"
+    }
+  },
+  "listxattr": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "namebuf": {
+      "out_bytes_arg": "bufsize"
+    }
+  },
+  "flistxattr": {
+    "namebuf": {
+      "out_bytes_arg": "bufsize"
+    }
+  },
+  "fsctl": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "data": {
+      "dep": "cmd"
+    }
+  },
+  "initgroups": {
+    "gidset": {
+      "in_count_arg": "gidsetsize * 4"
+    }
+  },
+  "posix_spawn": {
+    "pid": {
+      "out_fixed": 4
+    },
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "adesc": {
+      "dep": "in_fixed: 144 plus descriptor-referenced payloads"
+    },
+    "argv": {
+      "dep": "in_string_array: nul-terminated argv vector"
+    },
+    "envp": {
+      "dep": "in_string_array: nul-terminated env vector"
+    }
+  },
+  "ffsctl": {
+    "data": {
+      "dep": "cmd"
+    }
+  },
+  "fhopen": {
+    "u_fhp": {
+      "in_fixed": 132
+    }
+  },
+  "minherit": {
+    "addr": {
+      "addr_range": "len"
+    }
+  },
+  "semctl": {
+    "arg": {
+      "dep": "cmd"
+    }
+  },
+  "semop": {
+    "sops": {
+      "in_count_arg": "nsops * 6"
+    }
+  },
+  "msgctl": {
+    "buf": {
+      "dep": "cmd"
+    }
+  },
+  "msgsnd": {
+    "msgp": {
+      "in_bytes_arg": "8 + msgsz"
+    }
+  },
+  "msgrcv": {
+    "msgp": {
+      "out_bytes_arg": "8 + msgsz"
+    }
+  },
+  "shmat": {
+    "shmaddr": {
+      "addr_value": "requested attach address"
+    }
+  },
+  "shmctl": {
+    "buf": {
+      "dep": "cmd"
+    }
+  },
+  "shmdt": {
+    "shmaddr": {
+      "addr_value": "attached segment address"
+    }
+  },
+  "shm_open": {
+    "name": {
+      "in_string": "nul-terminated"
+    }
+  },
+  "shm_unlink": {
+    "name": {
+      "in_string": "nul-terminated"
+    }
+  },
+  "sem_open": {
+    "name": {
+      "in_string": "nul-terminated"
+    }
+  },
+  "sem_close": {
+    "sem": {
+      "addr_value": "userspace semaphore handle"
+    }
+  },
+  "sem_unlink": {
+    "name": {
+      "in_string": "nul-terminated"
+    }
+  },
+  "sem_wait": {
+    "sem": {
+      "addr_value": "userspace semaphore handle"
+    }
+  },
+  "sem_trywait": {
+    "sem": {
+      "addr_value": "userspace semaphore handle"
+    }
+  },
+  "sem_post": {
+    "sem": {
+      "addr_value": "userspace semaphore handle"
+    }
+  },
+  "sys_sysctlbyname": {
+    "name": {
+      "in_bytes_arg": "namelen"
+    },
+    "old": {
+      "out_len_ptr": "oldlenp"
+    },
+    "oldlenp": {
+      "inout_fixed": 8
+    },
+    "new": {
+      "in_bytes_arg": "newlen"
+    }
+  },
+  "open_extended": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "xsecurity": {
+      "dep": "in_variable_struct: kauth_filesec size from struct contents"
+    }
+  },
+  "umask_extended": {
+    "xsecurity": {
+      "addr_value": "not implemented/no copy"
+    }
+  },
+  "stat_extended": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "ub": {
+      "out_fixed": 144
+    },
+    "xsecurity": {
+      "out_len_ptr": "xsecurity_size"
+    },
+    "xsecurity_size": {
+      "inout_fixed": 8
+    }
+  },
+  "lstat_extended": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "ub": {
+      "out_fixed": 144
+    },
+    "xsecurity": {
+      "out_len_ptr": "xsecurity_size"
+    },
+    "xsecurity_size": {
+      "inout_fixed": 8
+    }
+  },
+  "sys_fstat_extended": {
+    "ub": {
+      "out_fixed": 144
+    },
+    "xsecurity": {
+      "out_len_ptr": "xsecurity_size"
+    },
+    "xsecurity_size": {
+      "inout_fixed": 8
+    }
+  },
+  "chmod_extended": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "xsecurity": {
+      "dep": "in_variable_struct: kauth_filesec size from struct contents"
+    }
+  },
+  "fchmod_extended": {
+    "xsecurity": {
+      "dep": "in_variable_struct: kauth_filesec size from struct contents"
+    }
+  },
+  "access_extended": {
+    "entries": {
+      "in_bytes_arg": "size"
+    },
+    "results": {
+      "out_bytes_arg": "size"
+    }
+  },
+  "gettid": {
+    "uidp": {
+      "out_fixed": 4
+    },
+    "gidp": {
+      "out_fixed": 4
+    }
+  },
+  "setsgroups": {
+    "guidset": {
+      "dep": "unsupported: returns ENOTSUP; no copy"
+    }
+  },
+  "getsgroups": {
+    "setlen": {
+      "dep": "unsupported: returns ENOTSUP; no copy"
+    },
+    "guidset": {
+      "dep": "unsupported: returns ENOTSUP; no copy"
+    }
+  },
+  "setwgroups": {
+    "guidset": {
+      "dep": "unsupported: returns ENOTSUP; no copy"
+    }
+  },
+  "getwgroups": {
+    "setlen": {
+      "dep": "unsupported: returns ENOTSUP; no copy"
+    },
+    "guidset": {
+      "dep": "unsupported: returns ENOTSUP; no copy"
+    }
+  },
+  "mkfifo_extended": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "xsecurity": {
+      "dep": "in_variable_struct: kauth_filesec size from struct contents"
+    }
+  },
+  "mkdir_extended": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "xsecurity": {
+      "dep": "in_variable_struct: kauth_filesec size from struct contents"
+    }
+  },
+  "identitysvc": {
+    "message": {
+      "dep": "opcode"
+    }
+  },
+  "shared_region_check_np": {
+    "start_address": {
+      "out_fixed": 8
+    }
+  },
+  "vm_pressure_monitor": {
+    "pages_reclaimed": {
+      "out_fixed": 4
+    }
+  },
+  "psynch_rw_longrdlock": {
+    "rwlock": {
+      "addr_value": "userspace synchronization object address"
+    }
+  },
+  "psynch_rw_yieldwrlock": {
+    "rwlock": {
+      "addr_value": "userspace synchronization object address"
+    }
+  },
+  "psynch_rw_downgrade": {
+    "rwlock": {
+      "addr_value": "userspace synchronization object address"
+    }
+  },
+  "psynch_rw_upgrade": {
+    "rwlock": {
+      "addr_value": "userspace synchronization object address"
+    }
+  },
+  "psynch_mutexwait": {
+    "mutex": {
+      "addr_value": "userspace synchronization object address"
+    }
+  },
+  "psynch_mutexdrop": {
+    "mutex": {
+      "addr_value": "userspace synchronization object address"
+    }
+  },
+  "psynch_cvbroad": {
+    "cv": {
+      "addr_value": "userspace synchronization object address"
+    },
+    "mutex": {
+      "addr_value": "userspace synchronization object address"
+    }
+  },
+  "psynch_cvsignal": {
+    "cv": {
+      "addr_value": "userspace synchronization object address"
+    },
+    "mutex": {
+      "addr_value": "userspace synchronization object address"
+    }
+  },
+  "psynch_cvwait": {
+    "cv": {
+      "addr_value": "userspace synchronization object address"
+    },
+    "mutex": {
+      "addr_value": "userspace synchronization object address"
+    }
+  },
+  "psynch_rw_rdlock": {
+    "rwlock": {
+      "addr_value": "userspace synchronization object address"
+    }
+  },
+  "psynch_rw_wrlock": {
+    "rwlock": {
+      "addr_value": "userspace synchronization object address"
+    }
+  },
+  "psynch_rw_unlock": {
+    "rwlock": {
+      "addr_value": "userspace synchronization object address"
+    }
+  },
+  "psynch_rw_unlock2": {
+    "rwlock": {
+      "addr_value": "userspace synchronization object address"
+    }
+  },
+  "psynch_cvclrprepost": {
+    "cv": {
+      "addr_value": "userspace synchronization object address"
+    }
+  },
+  "aio_fsync": {
+    "aiocbp": {
+      "in_fixed": 80
+    }
+  },
+  "aio_return": {
+    "aiocbp": {
+      "addr_value": "AIO request identity"
+    }
+  },
+  "aio_suspend": {
+    "aiocblist": {
+      "in_count_arg": "nent * 8"
+    },
+    "timeoutp": {
+      "in_fixed": 16
+    }
+  },
+  "aio_cancel": {
+    "aiocbp": {
+      "in_fixed": 80
+    }
+  },
+  "aio_error": {
+    "aiocbp": {
+      "addr_value": "AIO request identity"
+    }
+  },
+  "aio_read": {
+    "aiocbp": {
+      "dep": "in_fixed: 80; nested buffer from aio_buf/aio_nbytes"
+    }
+  },
+  "aio_write": {
+    "aiocbp": {
+      "dep": "in_fixed: 80; nested buffer from aio_buf/aio_nbytes"
+    }
+  },
+  "lio_listio": {
+    "aiocblist": {
+      "in_count_arg": "nent * 8"
+    },
+    "sigp": {
+      "in_fixed": 32
+    }
+  },
+  "iopolicysys": {
+    "arg": {
+      "dep": "cmd"
+    }
+  },
+  "process_policy": {
+    "attrp": {
+      "dep": "scope,action,policy,policy_subtype"
+    }
+  },
+  "__pthread_sigmask": {
+    "set": {
+      "in_fixed": 4
+    },
+    "oset": {
+      "out_fixed": 4
+    }
+  },
+  "__sigwait": {
+    "set": {
+      "in_fixed": 4
+    },
+    "sig": {
+      "out_fixed": 4
+    }
+  },
+  "proc_info": {
+    "buffer": {
+      "dep": "callnum,flavor,buffersize"
+    }
+  },
+  "sendfile": {
+    "nbytes": {
+      "inout_fixed": 8
+    },
+    "hdtr": {
+      "dep": "in_fixed: 32; nested iovec sizes from headers/trailers"
+    }
+  },
+  "stat64": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "ub": {
+      "out_fixed": 144
+    }
+  },
+  "sys_fstat64": {
+    "ub": {
+      "out_fixed": 144
+    }
+  },
+  "lstat64": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "ub": {
+      "out_fixed": 144
+    }
+  },
+  "stat64_extended": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "ub": {
+      "out_fixed": 144
+    },
+    "xsecurity": {
+      "out_len_ptr": "xsecurity_size"
+    },
+    "xsecurity_size": {
+      "inout_fixed": 8
+    }
+  },
+  "lstat64_extended": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "ub": {
+      "out_fixed": 144
+    },
+    "xsecurity": {
+      "out_len_ptr": "xsecurity_size"
+    },
+    "xsecurity_size": {
+      "inout_fixed": 8
+    }
+  },
+  "sys_fstat64_extended": {
+    "ub": {
+      "out_fixed": 144
+    },
+    "xsecurity": {
+      "out_len_ptr": "xsecurity_size"
+    },
+    "xsecurity_size": {
+      "inout_fixed": 8
+    }
+  },
+  "getdirentries64": {
+    "buf": {
+      "out_bytes_arg": "bufsize"
+    },
+    "position": {
+      "out_fixed": 8
+    }
+  },
+  "statfs64": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "buf": {
+      "out_fixed": 2168
+    }
+  },
+  "fstatfs64": {
+    "buf": {
+      "out_fixed": 2168
+    }
+  },
+  "getfsstat64": {
+    "buf": {
+      "out_bytes_arg": "bufsize"
+    }
+  },
+  "__pthread_chdir": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "audit": {
+    "record": {
+      "in_bytes_arg": "length"
+    }
+  },
+  "auditon": {
+    "data": {
+      "dep": "cmd,length"
+    }
+  },
+  "getauid": {
+    "auid": {
+      "out_fixed": 4
+    }
+  },
+  "setauid": {
+    "auid": {
+      "in_fixed": 4
+    }
+  },
+  "getaudit_addr": {
+    "auditinfo_addr": {
+      "out_bytes_arg": "length"
+    }
+  },
+  "setaudit_addr": {
+    "auditinfo_addr": {
+      "in_bytes_arg": "length"
+    }
+  },
+  "auditctl": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "bsdthread_create": {
+    "func": {
+      "addr_value": "entry point"
+    },
+    "func_arg": {
+      "addr_value": "thread argument"
+    },
+    "stack": {
+      "addr_value": "stack address"
+    },
+    "pthread": {
+      "addr_value": "pthread address"
+    }
+  },
+  "bsdthread_terminate": {
+    "stackaddr": {
+      "addr_range": "freesize"
+    },
+    "sema_or_ulock": {
+      "addr_value": "userspace synchronization object address"
+    }
+  },
+  "kevent": {
+    "changelist": {
+      "in_count_arg": "nchanges * 32"
+    },
+    "eventlist": {
+      "out_count_arg": "nevents * 32"
+    },
+    "timeout": {
+      "in_fixed": 16
+    }
+  },
+  "lchown": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "bsdthread_register": {
+    "threadstart": {
+      "addr_value": "entry point"
+    },
+    "wqthread": {
+      "addr_value": "entry point"
+    },
+    "stack_addr_hint": {
+      "addr_value": "stack address hint"
+    },
+    "targetconc_ptr": {
+      "out_fixed": 4
+    }
+  },
+  "workq_kernreturn": {
+    "item": {
+      "dep": "options"
+    }
+  },
+  "kevent64": {
+    "changelist": {
+      "in_count_arg": "nchanges * 48"
+    },
+    "eventlist": {
+      "out_count_arg": "nevents * 48"
+    },
+    "timeout": {
+      "in_fixed": 16
+    }
+  },
+  "ledger": {
+    "arg1": {
+      "dep": "cmd"
+    },
+    "arg2": {
+      "dep": "cmd"
+    },
+    "arg3": {
+      "dep": "cmd"
+    }
+  },
+  "kevent_qos": {
+    "changelist": {
+      "in_count_arg": "nchanges * 72"
+    },
+    "eventlist": {
+      "out_count_arg": "nevents * 72"
+    },
+    "data_out": {
+      "out_len_ptr": "data_available"
+    },
+    "data_available": {
+      "inout_fixed": 8
+    }
+  },
+  "kevent_id": {
+    "changelist": {
+      "in_count_arg": "nchanges * 72"
+    },
+    "eventlist": {
+      "out_count_arg": "nevents * 72"
+    },
+    "data_out": {
+      "out_len_ptr": "data_available"
+    },
+    "data_available": {
+      "inout_fixed": 8
+    }
+  },
+  "__mac_execve": {
+    "fname": {
+      "in_string": "nul-terminated path"
+    },
+    "argp": {
+      "dep": "in_string_array: nul-terminated argv vector"
+    },
+    "envp": {
+      "dep": "in_string_array: nul-terminated env vector"
+    },
+    "mac_p": {
+      "dep": "in_fixed: 16 plus label payload"
+    }
+  },
+  "__mac_syscall": {
+    "policy": {
+      "in_string": "nul-terminated"
+    },
+    "arg": {
+      "dep": "policy,call"
+    }
+  },
+  "__mac_get_file": {
+    "path_p": {
+      "in_string": "nul-terminated path"
+    },
+    "mac_p": {
+      "dep": "inout_fixed: 16 plus label payload"
+    }
+  },
+  "__mac_set_file": {
+    "path_p": {
+      "in_string": "nul-terminated path"
+    },
+    "mac_p": {
+      "dep": "in_fixed: 16 plus label payload"
+    }
+  },
+  "__mac_get_link": {
+    "path_p": {
+      "in_string": "nul-terminated path"
+    },
+    "mac_p": {
+      "dep": "inout_fixed: 16 plus label payload"
+    }
+  },
+  "__mac_set_link": {
+    "path_p": {
+      "in_string": "nul-terminated path"
+    },
+    "mac_p": {
+      "dep": "in_fixed: 16 plus label payload"
+    }
+  },
+  "__mac_get_proc": {
+    "mac_p": {
+      "dep": "inout_fixed: 16 plus label payload"
+    }
+  },
+  "__mac_set_proc": {
+    "mac_p": {
+      "dep": "in_fixed: 16 plus label payload"
+    }
+  },
+  "__mac_get_fd": {
+    "mac_p": {
+      "dep": "inout_fixed: 16 plus label payload"
+    }
+  },
+  "__mac_set_fd": {
+    "mac_p": {
+      "dep": "in_fixed: 16 plus label payload"
+    }
+  },
+  "__mac_get_pid": {
+    "mac_p": {
+      "dep": "inout_fixed: 16 plus label payload"
+    }
+  },
+  "pselect": {
+    "in": {
+      "dep": "inout_fdset: nd"
+    },
+    "ou": {
+      "dep": "inout_fdset: nd"
+    },
+    "ex": {
+      "dep": "inout_fdset: nd"
+    },
+    "ts": {
+      "in_fixed": 16
+    },
+    "mask": {
+      "in_fixed": 4
+    }
+  },
+  "pselect_nocancel": {
+    "in": {
+      "dep": "inout_fdset: nd"
+    },
+    "ou": {
+      "dep": "inout_fdset: nd"
+    },
+    "ex": {
+      "dep": "inout_fdset: nd"
+    },
+    "ts": {
+      "in_fixed": 16
+    },
+    "mask": {
+      "in_fixed": 4
+    }
+  },
+  "read_nocancel": {
+    "cbuf": {
+      "out_bytes_arg": "nbyte"
+    }
+  },
+  "write_nocancel": {
+    "cbuf": {
+      "in_bytes_arg": "nbyte"
+    }
+  },
+  "open_nocancel": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "wait4_nocancel": {
+    "status": {
+      "out_fixed": 4
+    },
+    "rusage": {
+      "out_fixed": 144
+    }
+  },
+  "recvmsg_nocancel": {
+    "msg": {
+      "dep": "inout_msghdr: 48; nested sizes from msg_iovlen, msg_namelen, msg_controllen"
+    }
+  },
+  "sendmsg_nocancel": {
+    "msg": {
+      "dep": "in_msghdr: 48; nested sizes from msg_iovlen, msg_namelen, msg_controllen"
+    }
+  },
+  "recvfrom_nocancel": {
+    "buf": {
+      "out_bytes_arg": "len"
+    },
+    "from": {
+      "out_len_ptr": "fromlenaddr"
+    },
+    "fromlenaddr": {
+      "inout_fixed": 4
+    }
+  },
+  "accept_nocancel": {
+    "name": {
+      "out_len_ptr": "anamelen"
+    },
+    "anamelen": {
+      "inout_fixed": 4
+    }
+  },
+  "msync_nocancel": {
+    "addr": {
+      "addr_range": "len"
+    }
+  },
+  "sys_fcntl_nocancel": {
+    "arg": {
+      "dep": "cmd"
+    }
+  },
+  "select_nocancel": {
+    "in": {
+      "dep": "inout_fdset: nd"
+    },
+    "ou": {
+      "dep": "inout_fdset: nd"
+    },
+    "ex": {
+      "dep": "inout_fdset: nd"
+    },
+    "tv": {
+      "in_fixed": 16
+    }
+  },
+  "connect_nocancel": {
+    "name": {
+      "in_bytes_arg": "namelen"
+    }
+  },
+  "readv_nocancel": {
+    "iovp": {
+      "dep": "out_iovec_array: iovcnt * 16; nested iov_base sizes from iov_len"
+    }
+  },
+  "writev_nocancel": {
+    "iovp": {
+      "dep": "in_iovec_array: iovcnt * 16; nested iov_base sizes from iov_len"
+    }
+  },
+  "sendto_nocancel": {
+    "buf": {
+      "in_bytes_arg": "len"
+    },
+    "to": {
+      "in_bytes_arg": "tolen"
+    }
+  },
+  "pread_nocancel": {
+    "buf": {
+      "out_bytes_arg": "nbyte"
+    }
+  },
+  "pwrite_nocancel": {
+    "buf": {
+      "in_bytes_arg": "nbyte"
+    }
+  },
+  "waitid_nocancel": {
+    "infop": {
+      "out_fixed": 104
+    }
+  },
+  "poll_nocancel": {
+    "fds": {
+      "inout_count_arg": "nfds * 8"
+    }
+  },
+  "msgsnd_nocancel": {
+    "msgp": {
+      "in_bytes_arg": "8 + msgsz"
+    }
+  },
+  "msgrcv_nocancel": {
+    "msgp": {
+      "out_bytes_arg": "8 + msgsz"
+    }
+  },
+  "sem_wait_nocancel": {
+    "sem": {
+      "addr_value": "userspace semaphore handle"
+    }
+  },
+  "aio_suspend_nocancel": {
+    "aiocblist": {
+      "in_count_arg": "nent * 8"
+    },
+    "timeoutp": {
+      "in_fixed": 16
+    }
+  },
+  "__sigwait_nocancel": {
+    "set": {
+      "in_fixed": 4
+    },
+    "sig": {
+      "out_fixed": 4
+    }
+  },
+  "__mac_mount": {
+    "type": {
+      "in_string": "nul-terminated"
+    },
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "data": {
+      "dep": "in_variable_struct: filesystem-specific mount data"
+    },
+    "mac_p": {
+      "dep": "in_fixed: 16 plus label payload"
+    }
+  },
+  "__mac_get_mount": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "mac_p": {
+      "dep": "inout_fixed: 16 plus label payload"
+    }
+  },
+  "__mac_getfsstat": {
+    "buf": {
+      "out_bytes_arg": "bufsize"
+    },
+    "mac": {
+      "inout_bytes_arg": "macsize"
+    }
+  },
+  "fsgetpath": {
+    "buf": {
+      "out_bytes_arg": "bufsize"
+    },
+    "fsid": {
+      "in_fixed": 8
+    }
+  },
+  "sys_fileport_makeport": {
+    "portnamep": {
+      "out_fixed": 4
+    }
+  },
+  "audit_session_port": {
+    "portnamep": {
+      "out_fixed": 4
+    }
+  },
+  "kas_info": {
+    "value": {
+      "out_len_ptr": "size"
+    },
+    "size": {
+      "inout_fixed": 8
+    }
+  },
+  "memorystatus_control": {
+    "buffer": {
+      "dep": "command,buffersize"
+    }
+  },
+  "guarded_open_np": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "guard": {
+      "in_fixed": 8
+    }
+  },
+  "guarded_close_np": {
+    "guard": {
+      "in_fixed": 8
+    }
+  },
+  "guarded_kqueue_np": {
+    "guard": {
+      "in_fixed": 8
+    }
+  },
+  "change_fdguard_np": {
+    "guard": {
+      "in_fixed": 8
+    },
+    "nguard": {
+      "in_fixed": 8
+    },
+    "fdflagsp": {
+      "inout_fixed": 4
+    }
+  },
+  "proc_rlimit_control": {
+    "arg": {
+      "dep": "addr_value: flavor-dependent scalar/address; not generally copied"
+    }
+  },
+  "connectx": {
+    "endpoints": {
+      "dep": "in_fixed: 40; nested sockaddr sizes from endpoints"
+    },
+    "iov": {
+      "in_count_arg": "iovcnt * 16"
+    },
+    "len": {
+      "out_fixed": 8
+    },
+    "connid": {
+      "out_fixed": 4
+    }
+  },
+  "proc_uuid_policy": {
+    "uuid": {
+      "in_bytes_arg": "uuidlen"
+    }
+  },
+  "memorystatus_get_level": {
+    "level": {
+      "out_fixed": 4
+    }
+  },
+  "sfi_ctl": {
+    "out_time": {
+      "out_fixed": 8
+    }
+  },
+  "sfi_pidctl": {
+    "out_sfi_flags": {
+      "out_fixed": 4
+    }
+  },
+  "coalition": {
+    "cid": {
+      "dep": "operation"
+    }
+  },
+  "coalition_info": {
+    "cid": {
+      "in_fixed": 8
+    },
+    "buffer": {
+      "dep": "flavor"
+    },
+    "bufsize": {
+      "inout_fixed": 8
+    }
+  },
+  "necp_match_policy": {
+    "parameters": {
+      "in_bytes_arg": "parameters_size"
+    },
+    "returned_result": {
+      "out_fixed": 424
+    }
+  },
+  "getattrlistbulk": {
+    "alist": {
+      "in_fixed": 24
+    },
+    "attributeBuffer": {
+      "out_bytes_arg": "bufferSize"
+    }
+  },
+  "clonefileat": {
+    "src": {
+      "in_string": "nul-terminated path"
+    },
+    "dst": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "openat": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "openat_nocancel": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "renameat": {
+    "from": {
+      "in_string": "nul-terminated path"
+    },
+    "to": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "faccessat": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "fchmodat": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "fchownat": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "fstatat": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "ub": {
+      "out_fixed": 144
+    }
+  },
+  "fstatat64": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "ub": {
+      "out_fixed": 144
+    }
+  },
+  "linkat": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "link": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "unlinkat": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "readlinkat": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "buf": {
+      "out_bytes_arg": "bufsize"
+    }
+  },
+  "symlinkat": {
+    "path1": {
+      "in_string": "nul-terminated path"
+    },
+    "path2": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "mkdirat": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "getattrlistat": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "alist": {
+      "in_fixed": 24
+    },
+    "attributeBuffer": {
+      "out_bytes_arg": "bufferSize"
+    }
+  },
+  "bsdthread_ctl": {
+    "cmd": {
+      "addr_value": "command value"
+    },
+    "arg1": {
+      "dep": "cmd"
+    },
+    "arg2": {
+      "dep": "cmd"
+    },
+    "arg3": {
+      "dep": "cmd"
+    }
+  },
+  "openbyid_np": {
+    "fsid": {
+      "in_fixed": 8
+    },
+    "objid": {
+      "in_fixed": 8
+    }
+  },
+  "recvmsg_x": {
+    "msgp": {
+      "dep": "inout_count_arg: cnt * 48; nested sizes from each message"
+    }
+  },
+  "sendmsg_x": {
+    "msgp": {
+      "dep": "in_count_arg: cnt * 48; nested sizes from each message"
+    }
+  },
+  "csrctl": {
+    "useraddr": {
+      "dep": "op"
+    },
+    "usersize": {
+      "addr_value": "size value, not pointer"
+    }
+  },
+  "guarded_open_dprotected_np": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "guard": {
+      "in_fixed": 8
+    }
+  },
+  "guarded_write_np": {
+    "guard": {
+      "in_fixed": 8
+    },
+    "cbuf": {
+      "in_bytes_arg": "nbyte"
+    }
+  },
+  "guarded_pwrite_np": {
+    "guard": {
+      "in_fixed": 8
+    },
+    "buf": {
+      "in_bytes_arg": "nbyte"
+    }
+  },
+  "guarded_writev_np": {
+    "guard": {
+      "in_fixed": 8
+    },
+    "iovp": {
+      "dep": "in_iovec_array: iovcnt * 16; nested iov_base sizes from iov_len"
+    }
+  },
+  "renameatx_np": {
+    "from": {
+      "in_string": "nul-terminated path"
+    },
+    "to": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "mremap_encrypted": {
+    "addr": {
+      "addr_range": "len"
+    }
+  },
+  "netagent_trigger": {
+    "agent_uuid": {
+      "in_bytes_arg": "agent_uuidlen"
+    }
+  },
+  "stack_snapshot_with_config": {
+    "stackshot_config": {
+      "in_bytes_arg": "stackshot_config_size"
+    }
+  },
+  "microstackshot": {
+    "tracebuf": {
+      "out_bytes_arg": "tracebuf_size"
+    }
+  },
+  "grab_pgo_data": {
+    "uuid": {
+      "in_fixed": 16
+    },
+    "buffer": {
+      "out_bytes_arg": "size"
+    }
+  },
+  "persona": {
+    "info": {
+      "dep": "operation"
+    },
+    "id": {
+      "dep": "operation"
+    },
+    "idlen": {
+      "dep": "operation"
+    },
+    "path": {
+      "dep": "operation"
+    }
+  },
+  "work_interval_ctl": {
+    "arg": {
+      "dep": "operation,len"
+    }
+  },
+  "getentropy": {
+    "buffer": {
+      "out_bytes_arg": "size"
+    }
+  },
+  "necp_client_action": {
+    "client_id": {
+      "in_bytes_arg": "client_id_len"
+    },
+    "buffer": {
+      "dep": "action,buffer_size"
+    }
+  },
+  "__nexus_open": {
+    "init": {
+      "inout_bytes_arg": "init_len"
+    }
+  },
+  "__nexus_register": {
+    "reg": {
+      "in_bytes_arg": "reg_len"
+    },
+    "prov_uuid": {
+      "out_bytes_arg": "prov_uuid_len"
+    }
+  },
+  "__nexus_deregister": {
+    "prov_uuid": {
+      "in_bytes_arg": "prov_uuid_len"
+    }
+  },
+  "__nexus_create": {
+    "prov_uuid": {
+      "in_bytes_arg": "prov_uuid_len"
+    },
+    "nx_uuid": {
+      "out_bytes_arg": "nx_uuid_len"
+    }
+  },
+  "__nexus_destroy": {
+    "nx_uuid": {
+      "in_bytes_arg": "nx_uuid_len"
+    }
+  },
+  "__nexus_get_opt": {
+    "aoptval": {
+      "out_len_ptr": "aoptlen"
+    },
+    "aoptlen": {
+      "inout_fixed": 4
+    }
+  },
+  "__nexus_set_opt": {
+    "aoptval": {
+      "in_bytes_arg": "optlen"
+    }
+  },
+  "__channel_open": {
+    "init": {
+      "inout_bytes_arg": "init_len"
+    }
+  },
+  "__channel_get_info": {
+    "cinfo": {
+      "out_bytes_arg": "cinfolen"
+    }
+  },
+  "__channel_get_opt": {
+    "aoptval": {
+      "out_len_ptr": "aoptlen"
+    },
+    "aoptlen": {
+      "inout_fixed": 4
+    }
+  },
+  "__channel_set_opt": {
+    "aoptval": {
+      "in_bytes_arg": "optlen"
+    }
+  },
+  "sys_ulock_wait": {
+    "addr": {
+      "dep": "in_fixed: ulock word at addr"
+    }
+  },
+  "sys_ulock_wake": {
+    "addr": {
+      "addr_value": "ulock address"
+    }
+  },
+  "fclonefileat": {
+    "dst": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "fs_snapshot": {
+    "name1": {
+      "dep": "op"
+    },
+    "name2": {
+      "dep": "op"
+    },
+    "data": {
+      "dep": "op"
+    }
+  },
+  "terminate_with_payload": {
+    "payload": {
+      "in_bytes_arg": "payload_size"
+    },
+    "reason_string": {
+      "in_string": "nul-terminated"
+    }
+  },
+  "abort_with_payload": {
+    "payload": {
+      "in_bytes_arg": "payload_size"
+    },
+    "reason_string": {
+      "in_string": "nul-terminated"
+    }
+  },
+  "necp_session_action": {
+    "in_buffer": {
+      "dep": "action,in_buffer_length"
+    },
+    "out_buffer": {
+      "dep": "action,out_buffer_length"
+    }
+  },
+  "setattrlistat": {
+    "path": {
+      "in_string": "nul-terminated path"
+    },
+    "alist": {
+      "in_fixed": 24
+    },
+    "attributeBuffer": {
+      "in_bytes_arg": "bufferSize"
+    }
+  },
+  "net_qos_guideline": {
+    "param": {
+      "in_bytes_arg": "param_len"
+    }
+  },
+  "fmount": {
+    "type": {
+      "in_string": "nul-terminated"
+    },
+    "data": {
+      "dep": "in_variable_struct: filesystem-specific mount data"
+    }
+  },
+  "ntp_adjtime": {
+    "tp": {
+      "inout_fixed": 208
+    }
+  },
+  "ntp_gettime": {
+    "ntvp": {
+      "out_fixed": 24
+    }
+  },
+  "os_fault_with_payload": {
+    "payload": {
+      "in_bytes_arg": "payload_size"
+    },
+    "reason_string": {
+      "in_string": "nul-terminated"
+    }
+  },
+  "kqueue_workloop_ctl": {
+    "cmd": {
+      "addr_value": "command value"
+    },
+    "addr": {
+      "in_bytes_arg": "sz"
+    }
+  },
+  "coalition_ledger": {
+    "cid": {
+      "in_fixed": 8
+    },
+    "buffer": {
+      "dep": "in_bytes_arg: *bufsize"
+    },
+    "bufsize": {
+      "in_fixed": 8
+    }
+  },
+  "log_data": {
+    "buffer": {
+      "in_bytes_arg": "size"
+    }
+  },
+  "shared_region_map_and_slide_2_np": {
+    "files": {
+      "in_count_arg": "files_count * 72"
+    },
+    "mappings_u": {
+      "in_count_arg": "mappings_count * 32"
+    }
+  },
+  "pivot_root": {
+    "new_rootfs_path_before": {
+      "in_string": "nul-terminated path"
+    },
+    "old_rootfs_path_after": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "task_inspect_for_pid": {
+    "t": {
+      "out_fixed": 4
+    }
+  },
+  "task_read_for_pid": {
+    "t": {
+      "out_fixed": 4
+    }
+  },
+  "sys_preadv": {
+    "iovp": {
+      "dep": "out_iovec_array: iovcnt * 16; nested iov_base sizes from iov_len"
+    }
+  },
+  "sys_pwritev": {
+    "iovp": {
+      "dep": "in_iovec_array: iovcnt * 16; nested iov_base sizes from iov_len"
+    }
+  },
+  "sys_preadv_nocancel": {
+    "iovp": {
+      "dep": "out_iovec_array: iovcnt * 16; nested iov_base sizes from iov_len"
+    }
+  },
+  "sys_pwritev_nocancel": {
+    "iovp": {
+      "dep": "in_iovec_array: iovcnt * 16; nested iov_base sizes from iov_len"
+    }
+  },
+  "sys_ulock_wait2": {
+    "addr": {
+      "dep": "in_fixed: ulock word at addr"
+    }
+  },
+  "proc_info_extended_id": {
+    "buffer": {
+      "dep": "callnum,flavor,buffersize"
+    }
+  },
+  "tracker_action": {
+    "buffer": {
+      "dep": "action,buffer_size"
+    }
+  },
+  "graftdmg": {
+    "mountdir": {
+      "in_string": "nul-terminated path"
+    },
+    "gda": {
+      "in_fixed": 512
+    }
+  },
+  "map_with_linking_np": {
+    "regions": {
+      "in_count_arg": "region_count * 32"
+    },
+    "link_info": {
+      "in_bytes_arg": "link_info_size"
+    }
+  },
+  "freadlink": {
+    "buf": {
+      "out_bytes_arg": "bufsize"
+    }
+  },
+  "sys_record_system_event": {
+    "event": {
+      "in_string": "nul-terminated"
+    },
+    "payload": {
+      "in_string": "nul-terminated"
+    }
+  },
+  "mkfifoat": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "mknodat": {
+    "path": {
+      "in_string": "nul-terminated path"
+    }
+  },
+  "ungraftdmg": {
+    "mountdir": {
+      "in_string": "nul-terminated path"
+    }
+  }
+}

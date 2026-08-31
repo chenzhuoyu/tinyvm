@@ -740,7 +740,7 @@
 #endif /* SOCKETS */
 482	AUE_NULL	ALL	{ uint64_t thread_selfusage(void) NO_SYSCALL_STUB; }
 #if CONFIG_CSR
-483	AUE_NULL	ALL	{ int csrctl(uint32_t op, user_addr_t useraddr, user_addr_t usersize) NO_SYSCALL_STUB; }
+483	AUE_NULL	ALL	{ int csrctl(uint32_t op, user_addr_t useraddr, user_size_t usersize) NO_SYSCALL_STUB; }
 #else
 483	AUE_NULL	ALL	{ int enosys(void); }
 #endif /* CSR */

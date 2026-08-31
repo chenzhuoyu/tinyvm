@@ -358,16 +358,12 @@ impl PageTable {
 
 impl PageTable {
     #[inline]
-    pub fn lookup(&self, virt: VMA) -> Option<Protection> {
-        let page = self.find_page(virt)?;
-        Some(Protection::from_ap_nx(page.AP(), page.UXN()))
-    }
-
-    #[inline]
-    pub fn translate(&self, virt: VMA) -> Option<Uintptr> {
+    pub fn lookup(&self, virt: VMA) -> Option<(Uintptr, Protection)> {
         let addr = virt.addr() as usize;
-        let page = self.find_page(virt)?.phys_addr() as usize;
-        Some(Uintptr::new(page * PAGE_SIZE + addr % PAGE_SIZE))
+        let page = self.find_page(virt)?;
+        let phys = Uintptr::new((page.phys_addr() as usize) * PAGE_SIZE + addr % PAGE_SIZE);
+        let prot = Protection::from_ap_nx(page.AP(), page.UXN());
+        Some((phys, prot))
     }
 }
 

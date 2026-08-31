@@ -1,6 +1,7 @@
 #![feature(cstr_display)]
 #![feature(core_intrinsics)]
 #![feature(debug_closure_helpers)]
+#![feature(generic_const_exprs)]
 #![feature(macro_metavar_expr)]
 #![feature(maybe_uninit_as_bytes)]
 #![cfg_attr(target_arch = "aarch64", feature(portable_simd))]

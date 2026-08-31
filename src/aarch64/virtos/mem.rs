@@ -391,6 +391,31 @@ impl VmMap {
         cpu.flush_tlb(addr, size / PAGE_SIZE);
         Ok(())
     }
+
+    fn populate_range(&mut self, cpu: &Cpu, virt: VMA, size: usize) -> Option<Uintptr> {
+        let (phys, prot) = self
+            .page
+            .lookup(virt)
+            .or_else(|| self.touch_phys_address(cpu, virt))?;
+        Some(phys)
+    }
+
+    #[cold]
+    fn touch_phys_address(&mut self, cpu: &Cpu, virt: VMA) -> Option<(Uintptr, Protection)> {
+        let (&base, region) = self
+            .used
+            .range_mut(..=virt)
+            .next_back()
+            .filter(|(.., r)| r.next > virt)?;
+        let phys = {
+            assert!(virt.is_aligned_to(PAGE_SIZE));
+            region.base + (virt - base)
+        };
+        self.page.set(virt, phys, region.prot, region.max_prot);
+        cpu.flush_tlb(virt, 1);
+        region.populated = true;
+        Some((phys, region.prot))
+    }
 }
 
 impl VmMap {
@@ -490,6 +515,12 @@ impl VmMap {
         VMM.lock()
             .protect_range(cpu, addr, align_to_page(size), prot, set_max)
     }
+
+    #[inline]
+    pub fn populate(cpu: &Cpu, virt: VMA, size: usize) -> Option<Uintptr> {
+        VMM.lock()
+            .populate_range(cpu, virt.align_down(PAGE_SIZE), align_to_page(size))
+    }
 }
 
 impl VmMap {
@@ -515,13 +546,8 @@ impl VmMap {
     }
 
     #[inline]
-    pub fn lookup(virt: VMA) -> Option<Protection> {
-        VMM.lock().page.lookup(virt)
-    }
-
-    #[inline]
     pub fn translate(virt: VMA) -> Option<Uintptr> {
-        VMM.lock().page.translate(virt)
+        Some(VMM.lock().page.lookup(virt)?.0)
     }
 }
 

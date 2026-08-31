@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import dataclasses
+import json
 import re
 import subprocess
 
@@ -12,6 +13,7 @@ PRELUDE = r'''#![allow(dead_code)]
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 
 use crate::{
+    aarch64::virtos::syscall::vma::UserSz,
     macros::define_bit_field,
     utils::{ptr::VMA, str::Sz},
 };
@@ -296,14 +298,6 @@ pub struct sigvec {
 trait Arg {
     fn decode(args: &[u64; 9]) -> Self;
 }
-
-#[inline]
-fn mk_uuid(lsb: u64, msb: u64) -> libc::uuid_t {
-    let mut uuid = [0u8; 16];
-    uuid[..8].copy_from_slice(&lsb.to_le_bytes());
-    uuid[8..].copy_from_slice(&msb.to_le_bytes());
-    uuid
-}
 '''
 
 BSD_IMPL_PRELUDE = r'''
@@ -323,15 +317,13 @@ impl Syscall<'_> {
                         }
                     )*
                     BsdSyscall::Unknown(..) => {
-                        self.bsd_error(libc::ENOSYS);
+                        self.bsd_return(libc::ENOSYS, false);
                     },
                 }
             };
             (@CALL $name:ident $(, $args:expr)?) =>  {
-                match bsd::$name(self.cpu $(, $args)?) {
-                    Err(err) => self.bsd_error(err.raw_os_error().unwrap_or(-1)),
-                    Ok(ret) => self.bsd_result(ret),
-                }
+                let (ret, ok) = bsd::$name(self.cpu $(, $args)?);
+                self.bsd_return(ret, ok);
             };
             (@CASE $name:ident [($args:ident)]) => { BsdSyscall::$name($args) };
             (@CASE $name:ident [(..)]) => { BsdSyscall::$name(..) };
@@ -343,6 +335,57 @@ impl Syscall<'_> {
             (@IMPL $name:ident []) => { self.forward() };
         }
         handle_syscall! {
+'''
+
+BSD_DELEGATE_PRELUDE = r'''
+use crate::{
+    aarch64::{
+        cpu::Cpu,
+        syscall::{bsd::*, sys},
+        virtos::mem::VmMap,
+    },
+    utils::ptr::VMA,
+};
+
+trait ToSize: Copy {
+    fn to_size(self) -> usize;
+}
+
+macro_rules! impl_bsd_result {
+    ($($({$($bounds:tt)*})? $ty:ty),+ $(,)?) => {
+        $(
+            impl<$($($bounds)*)?> ToSize for $ty {
+                #[inline(always)]
+                fn to_size(self) -> usize {
+                    self as usize
+                }
+            }
+        )+
+    };
+}
+
+impl_bsd_result! {
+    u8,
+    u16,
+    u32,
+    u64,
+    usize,
+    i8,
+    i16,
+    i32,
+    i64,
+    isize,
+}
+
+macro_rules! at {
+    ($cpu:expr, $addr:expr, $size:expr) => {{
+        if let Some(addr) = VmMap::populate($cpu, $addr, $size) {
+            addr.as_u64()
+        } else {
+            return (libc::EFAULT as u64, false);
+        }
+    }};
+}
 '''
 
 TYPE_MAP = {
@@ -477,315 +520,34 @@ RUST_RESERVED = {
 }
 
 POINTER_TYPES = {
-    'Sz',
+    'UserSz',
     'VMA',
+    'libc::uuid_t',
 }
 
-STATUS_ONLY_SYSCALLS = {
-    'sys_close',
-    'link',
-    'unlink',
-    'sys_chdir',
-    'sys_fchdir',
-    'mknod',
-    'chmod',
-    'chown',
-    'setuid',
-    'getpeername',
-    'getsockname',
-    'access',
-    'chflags',
-    'fchflags',
-    'sync',
-    'kill',
-    'sys_crossarch_trap',
-    'sigaction',
-    'sigprocmask',
-    'getlogin',
-    'setlogin',
-    'acct',
-    'sigpending',
-    'sigaltstack',
-    'ioctl',
-    'reboot',
-    'revoke',
-    'symlink',
-    'execve',
-    'chroot',
-    'msync',
-    'oslog_coproc_reg',
-    'oslog_coproc',
-    'munmap',
-    'mprotect',
-    'madvise',
-    'mincore',
-    'setgroups',
-    'setpgid',
-    'setitimer',
-    'swapon',
-    'getitimer',
-    'fsync',
-    'setpriority',
-    'connect',
-    'bind',
-    'setsockopt',
-    'listen',
-    'sigsuspend',
-    'gettimeofday',
-    'getrusage',
-    'getsockopt',
-    'settimeofday',
-    'fchown',
-    'fchmod',
-    'setreuid',
-    'setregid',
-    'rename',
-    'sys_flock',
-    'mkfifo',
-    'shutdown',
-    'socketpair',
-    'mkdir',
-    'rmdir',
-    'utimes',
-    'futimes',
-    'adjtime',
-    'gethostuuid',
-    'nfssvc',
-    'statfs',
-    'fstatfs',
-    'unmount',
-    'getfh',
-    'funmount',
-    'quotactl',
-    'mount',
-    'csops',
-    'csops_audittoken',
-    'waitid',
-    'kdebug_typefilter',
-    'kdebug_trace64',
-    'kdebug_trace',
-    'setgid',
-    'setegid',
-    'seteuid',
-    'sigreturn',
-    'sys_panic_with_data',
-    'thread_selfcounts',
-    'fdatasync',
-    'stat',
-    'sys_fstat',
-    'lstat',
-    'getrlimit',
-    'setrlimit',
-    'truncate',
-    'ftruncate',
-    'sysctl',
-    'mlock',
-    'munlock',
-    'undelete',
-    'getattrlist',
-    'setattrlist',
-    'getdirentriesattr',
-    'exchangedata',
-    'searchfs',
-    'delete',
-    'copyfile',
-    'fgetattrlist',
-    'fsetattrlist',
-    'setxattr',
-    'fsetxattr',
-    'removexattr',
-    'fremovexattr',
-    'fsctl',
-    'initgroups',
-    'posix_spawn',
-    'ffsctl',
-    'minherit',
-    'semsys',
-    'msgsys',
-    'shmsys',
-    'semop',
-    'msgctl',
-    'msgsnd',
-    'shmctl',
-    'shmdt',
-    'shm_unlink',
-    'sem_close',
-    'sem_unlink',
-    'sem_wait',
-    'sem_trywait',
-    'sem_post',
-    'sys_sysctlbyname',
-    'umask_extended',
-    'stat_extended',
-    'lstat_extended',
-    'sys_fstat_extended',
-    'chmod_extended',
-    'fchmod_extended',
-    'access_extended',
-    'sys_settid',
-    'gettid',
-    'setsgroups',
-    'getsgroups',
-    'setwgroups',
-    'getwgroups',
-    'mkfifo_extended',
-    'mkdir_extended',
-    'identitysvc',
-    'shared_region_check_np',
-    'psynch_rw_downgrade',
-    'getsid',
-    'sys_settid_with_pid',
-    'psynch_cvclrprepost',
-    'aio_fsync',
-    'aio_suspend',
-    'aio_read',
-    'aio_write',
-    'lio_listio',
-    'iopolicysys',
-    'process_policy',
-    'mlockall',
-    'munlockall',
-    'issetugid',
-    '__pthread_kill',
-    '__pthread_sigmask',
-    '__sigwait',
-    '__disable_threadsignal',
-    '__pthread_markcancel',
-    '__pthread_canceled',
-    '__semwait_signal',
-    'sendfile',
-    'stat64',
-    'sys_fstat64',
-    'lstat64',
-    'stat64_extended',
-    'lstat64_extended',
-    'sys_fstat64_extended',
-    'statfs64',
-    'fstatfs64',
-    '__pthread_chdir',
-    '__pthread_fchdir',
-    'audit',
-    'auditon',
-    'getauid',
-    'setauid',
-    'getaudit_addr',
-    'setaudit_addr',
-    'auditctl',
-    'bsdthread_terminate',
-    'lchown',
-    'bsdthread_register',
-    'workq_open',
-    'ledger',
-    '__mac_execve',
-    '__mac_syscall',
-    '__mac_get_file',
-    '__mac_set_file',
-    '__mac_get_link',
-    '__mac_set_link',
-    '__mac_get_proc',
-    '__mac_set_proc',
-    '__mac_get_fd',
-    '__mac_set_fd',
-    '__mac_get_pid',
-    'sys_close_nocancel',
-    'msync_nocancel',
-    'fsync_nocancel',
-    'connect_nocancel',
-    'sigsuspend_nocancel',
-    'waitid_nocancel',
-    'msgsnd_nocancel',
-    'sem_wait_nocancel',
-    'aio_suspend_nocancel',
-    '__sigwait_nocancel',
-    '__semwait_signal_nocancel',
-    '__mac_mount',
-    '__mac_get_mount',
-    '__mac_getfsstat',
-    'audit_session_join',
-    'sys_fileport_makeport',
-    'audit_session_port',
-    'pid_suspend',
-    'pid_resume',
-    'pid_hibernate',
-    'pid_shutdown_sockets',
-    'kas_info',
-    'guarded_close_np',
-    'change_fdguard_np',
-    'usrctl',
-    'proc_rlimit_control',
-    'connectx',
-    'disconnectx',
-    'peeloff',
-    'telemetry',
-    'proc_uuid_policy',
-    'memorystatus_get_level',
-    'system_override',
-    'vfs_purge',
-    'sfi_ctl',
-    'sfi_pidctl',
-    'coalition',
-    'coalition_info',
-    'necp_match_policy',
-    'clonefileat',
-    'renameat',
-    'faccessat',
-    'fchmodat',
-    'fchownat',
-    'fstatat',
-    'fstatat64',
-    'linkat',
-    'unlinkat',
-    'symlinkat',
-    'mkdirat',
-    'getattrlistat',
-    'proc_trace_log',
-    'csrctl',
-    'renameatx_np',
-    'mremap_encrypted',
-    'stack_snapshot_with_config',
-    'microstackshot',
-    'persona',
-    'work_interval_ctl',
-    'getentropy',
-    '__nexus_register',
-    '__nexus_deregister',
-    '__nexus_create',
-    '__nexus_destroy',
-    '__nexus_get_opt',
-    '__nexus_set_opt',
-    '__channel_get_info',
-    '__channel_sync',
-    '__channel_get_opt',
-    '__channel_set_opt',
-    'fclonefileat',
-    'fs_snapshot',
-    'terminate_with_payload',
-    'necp_session_action',
-    'setattrlistat',
-    'fmount',
-    'ntp_gettime',
-    'os_fault_with_payload',
-    'coalition_ledger',
-    'log_data',
-    'objc_bp_assist_cfg_np',
-    'shared_region_map_and_slide_2_np',
-    'pivot_root',
-    'task_inspect_for_pid',
-    'task_read_for_pid',
-    'tracker_action',
-    'debug_syscall_reject',
-    'sys_debug_syscall_reject_config',
-    'graftdmg',
-    'map_with_linking_np',
-    'sys_record_system_event',
-    'mkfifoat',
-    'mknodat',
-    'ungraftdmg',
-    'sys_coalition_policy_set',
+PROMOTED_TYPES = {
+    'uuid_t',
 }
 
-IMPLEMENTED_SYSCALLS = {}
-SYSCALL_IMPL_FLAGS = {}
+IMPLEMENTED_SYSCALLS = {
+    'setsgroups'       : ('code', '(libc::ENOTSUP as i64, false)'),
+    'getsgroups'       : ('code', '(libc::ENOTSUP as i64, false)'),
+    'setwgroups'       : ('code', '(libc::ENOTSUP as i64, false)'),
+    'getwgroups'       : ('code', '(libc::ENOTSUP as i64, false)'),
+    'mmap'             : ('code', 'todo!()'),
+    'semctl'           : ('code', 'todo!()'),
+    'shmat'            : ('code', 'todo!()'),
+    'sem_open'         : ('code', 'todo!()'),
+    'bsdthread_create' : ('code', 'todo!()'),
+}
+
+SYSCALL_IMPL_FLAGS = {
+    # 'mmap'             : {'use:cpu', 'use:args'},
+    # 'semctl'           : {'use:cpu', 'use:args'},
+    # 'shmat'            : {'use:cpu', 'use:args'},
+    # 'sem_open'         : {'use:cpu', 'use:args'},
+    # 'bsdthread_create' : {'use:cpu', 'use:args'},
+}
 
 @dataclasses.dataclass
 class Arg:
@@ -808,19 +570,16 @@ class Arg:
     def rust_type(self) -> str:
         if self.indir != 0:
             return ' '.join(['*mut'] * self.indir + [self.type])
-        elif self.type:
-            return self.type
         else:
-            return '()'
+            return self.type
 
-    def to_rust_args(self, i: int) -> tuple[int, str]:
+    def to_rust_args(self, i: int) -> str:
         match self.rust_type:
-            case 'u64'          : return 1, f'args[{i}]'
-            case 'VMA'          : return 1, f'VMA::new(args[{i}])'
-            case 'Sz'           : return 1, f'Sz::from(args[{i}] as *mut i8)'
-            case 'semun_t'      : return 1, f'semun_t::from_u64(args[{i}])'
-            case 'libc::uuid_t' : return 2, f'mk_uuid(args[{i}], args[{i + 1}])'
-            case ty             : return 1, f'args[{i}] as {ty}'
+            case 'u64'     : return f'args[{i}]'
+            case 'VMA'     : return f'VMA::new(args[{i}])'
+            case 'UserSz'  : return f'UserSz::new(args[{i}])'
+            case 'semun_t' : return f'semun_t::from_u64(args[{i}])'
+            case ty        : return f'args[{i}] as {ty}'
 
 @dataclasses.dataclass
 class Syscall:
@@ -886,6 +645,9 @@ for line in map(str.lstrip, lines):
         ret_int = False
         ret_indir += 1
 
+    if not ret_indir and ret_ty in PROMOTED_TYPES:
+        ret_indir = 1
+
     ret_ty = TYPE_MAP[ret_ty]
     ret_ty = Arg('', ret_ty, ret_indir)
 
@@ -916,8 +678,11 @@ for line in map(str.lstrip, lines):
                 indir += 1
 
             if is_const and ty == 'char' and indir == 1:
-                args.append(Arg(to_snake_case(name), 'Sz', 0))
+                args.append(Arg(to_snake_case(name), 'UserSz', 0))
                 continue
+
+            if not indir and ty in PROMOTED_TYPES:
+                indir = 1
 
             ty = TYPE_MAP[ty] or 'libc::c_void'
             args.append(Arg(to_snake_case(name), ty, indir))
@@ -948,11 +713,9 @@ with open('src/aarch64/syscall/bsd.rs', 'w') as fp:
             print('    #[inline]', file = fp)
             print('    fn decode(args: &[u64; 9]) -> Self {', file = fp)
             print('        Self {', file = fp)
-            argc = 0
 
-            for arg in sc.args:
-                n, value = arg.to_rust_args(argc)
-                argc += n
+            for i, arg in enumerate(sc.args):
+                value = arg.to_rust_args(i)
                 print(f'            {arg.rust_name}: {value},', file = fp)
 
             print('        }', file = fp)
@@ -1011,6 +774,9 @@ with open('src/aarch64/syscall/bsd.rs', 'w') as fp:
     print('}', file = fp)
     print(file = fp)
 
+with open('docs/syscalls.json') as fp:
+    sc_tab = json.load(fp)
+
 with open('src/aarch64/syscall/bsd_impl.rs', 'w') as fp:
     print('//! Generated by `genbsdsyscalls.py`, DO NOT EDIT.', file = fp)
     print(file = fp)
@@ -1018,7 +784,7 @@ with open('src/aarch64/syscall/bsd_impl.rs', 'w') as fp:
 
     for sc in syscalls:
         if not sc.is_nosys:
-            if sc.ret_ty.is_ptr or any(v.is_ptr for v in sc.args) or sc.name in IMPLEMENTED_SYSCALLS:
+            if sc.name in sc_tab or sc.name in IMPLEMENTED_SYSCALLS:
                 if sc.args:
                     print(f'            {sc.name}(args),', file = fp)
                 else:
@@ -1036,44 +802,117 @@ with open('src/aarch64/syscall/bsd_impl.rs', 'w') as fp:
 with open('src/aarch64/virtos/syscall/bsd/delegate.rs', 'w') as fp:
     print('//! Generated by `genbsdsyscalls.py`, DO NOT EDIT.', file = fp)
     print(file = fp)
-    print('use std::io::Result as IoResult;', file = fp)
-    print(file = fp)
-    print('use crate::{', file = fp)
-    print('    aarch64::{cpu::Cpu, syscall::bsd::*},', file = fp)
-    print('    utils::ptr::VMA,', file = fp)
-    print('};', file = fp)
+    print(BSD_DELEGATE_PRELUDE.strip(), file = fp)
     print(file = fp)
 
     for sc in syscalls:
-        use_cpu = False
-        use_args = False
+        use_cpu = sc.name not in IMPLEMENTED_SYSCALLS
+        use_args = sc.name not in IMPLEMENTED_SYSCALLS
 
         if sc.is_nosys:
             continue
 
-        if not sc.ret_ty.is_ptr and all(not v.is_ptr for v in sc.args) and sc.name not in IMPLEMENTED_SYSCALLS:
+        if sc.name not in sc_tab and sc.name not in IMPLEMENTED_SYSCALLS:
             continue
 
         if flags := SYSCALL_IMPL_FLAGS.get(sc.name):
             use_cpu = 'use:cpu' in flags
-            use_args = 'use:flags' in flags
+            use_args = 'use:args' in flags
 
         cpu = 'cpu' if use_cpu else '_cpu'
-        ret_ty = sc.ret_ty.rust_type
+        ret_ty = 'i64'
         print('#[inline]', file = fp)
 
-        if sc.name in STATUS_ONLY_SYSCALLS:
-            ret_ty = '()'
+        if sc.name not in IMPLEMENTED_SYSCALLS:
+            assert not sc.ret_ty.is_ptr, f'returning pointer to userspace: {sc.name}'
+            ret_ty = 'u64'
 
         if sc.args:
             args = 'args' if use_args else '_args'
-            print(f'pub fn {sc.name}({cpu}: &Cpu, {args}: ARG_{sc.name}) -> IoResult<{ret_ty}> {{', file = fp)
+            print(f'pub fn {sc.name}({cpu}: &Cpu, {args}: ARG_{sc.name}) -> ({ret_ty}, bool) {{', file = fp)
         else:
-            print(f'pub fn {sc.name}({cpu}: &Cpu) -> IoResult<{ret_ty}> {{', file = fp)
+            print(f'pub fn {sc.name}({cpu}: &Cpu) -> ({ret_ty}, bool) {{', file = fp)
 
         match IMPLEMENTED_SYSCALLS.get(sc.name):
             case None:
-                print('    todo!();', file = fp)
+                args = []
+                ptr_args = sc_tab.get(sc.name, {})
+                dispatchable = True
+
+                for arg in sc.args:
+                    size_expr = ''
+                    size_meta = ptr_args.get(arg.name)
+
+                    if size_meta:
+                        size_info, = iter(size_meta.items())
+                        size_kind, size_value = size_info
+
+                        match size_kind:
+                            case 'addr_range'      : pass
+                            case 'addr_value'      : pass
+                            case 'dep'             : dispatchable = False
+                            case 'in_bytes_arg'    : size_expr = size_value
+                            case 'in_count_arg'    : size_expr = size_value
+                            case 'in_fixed'        : size_expr = size_value
+                            case 'in_string'       : size_expr = 'libc::MAXPATHLEN'
+                            case 'inout_bytes_arg' : size_expr = size_value
+                            case 'inout_count_arg' : size_expr = size_value
+                            case 'inout_fixed'     : size_expr = size_value
+                            case 'out_bytes_arg'   : size_expr = size_value
+                            case 'out_count_arg'   : size_expr = size_value
+                            case 'out_fixed'       : size_expr = size_value
+                            case 'out_len_ptr'     : pass
+                            case _                 : raise RuntimeError(f'unexpected size kind: {size_kind}')
+
+                        if not dispatchable:
+                            break
+
+                    match arg.rust_type:
+                        case 'u64':
+                            args.append(arg.rust_name)
+
+                        case 'VMA':
+                            if size_expr:
+                                args.append(f'at!(cpu, \
+                                    {arg.rust_name}, \
+                                    ToSize::to_size({size_expr}))'
+                                )
+                            else:
+                                dispatchable = False
+                                break
+
+                        case 'UserSz':
+                            if size_expr:
+                                args.append(f'at!(cpu, \
+                                    {arg.rust_name}.vma(), \
+                                    ToSize::to_size({size_expr}))'
+                                )
+                            else:
+                                dispatchable = False
+                                break
+
+                        case _ if arg.is_ptr:
+                            if size_expr:
+                                args.append(f'at!(cpu, \
+                                    VMA::new({arg.rust_name} as u64), \
+                                    ToSize::to_size({size_expr}))'
+                                )
+                            else:
+                                dispatchable = False
+                                break
+
+                        case _:
+                            args.append(f'{arg.rust_name} as u64')
+
+                if dispatchable:
+                    print(f'let ARG_{sc.name} {{', file = fp)
+                    print(', '.join(a.rust_name for a in sc.args), file = fp)
+                    print('} = args;', file = fp)
+                    print(f'sys::syscall({sc.id}, [', file = fp)
+                    print(', '.join(args), file = fp)
+                    print('])', file = fp)
+                else:
+                    print(f'todo!("{sc.name}({{args:?}}): {{cpu:#?}}");', file = fp)
 
             case ('code', code):
                 print(code, file = fp)

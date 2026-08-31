@@ -3,6 +3,7 @@ mod bsd_impl;
 pub mod mach;
 mod mach_impl;
 pub mod machdep;
+pub mod sys;
 
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
@@ -48,13 +49,6 @@ impl_bsd_result! {
     isize,
     {T} *mut T,
     {T} *const T,
-}
-
-impl BsdResult for () {
-    #[inline(always)]
-    fn as_result(self) -> u64 {
-        0u64
-    }
 }
 
 impl BsdResult for VMA {
@@ -115,49 +109,21 @@ impl<'p> Syscall<'p> {
         }
         ret
     }
-
-    #[inline]
-    pub fn syscall(num: i64, args: &mut [u64; 9], nzcv: &mut u64) {
-        unsafe {
-            std::arch::asm!(
-                "svc #0x80",
-                "mrs {}, NZCV",
-                out(reg) *nzcv,
-                inout("x0") args[0],
-                inout("x1") args[1],
-                in("x2") args[2],
-                in("x3") args[3],
-                in("x4") args[4],
-                in("x5") args[5],
-                in("x6") args[6],
-                in("x7") args[7],
-                in("x8") args[8],
-                in("x16") num,
-            );
-        }
-    }
 }
 
 impl Syscall<'_> {
     #[inline]
     fn forward(&mut self) {
         let mut nzcv = 0u64;
-        Self::syscall(self.num, &mut self.args, &mut nzcv);
+        sys::syscall_inplace(self.num, &mut self.args, &mut nzcv);
         self.spsr |= nzcv;
     }
 
     #[inline]
-    fn bsd_error(&mut self, err: i32) {
-        self.args[0] = err as u64;
-        self.args[1] = 0;
-        self.spsr |= PSTATE_C;
-    }
-
-    #[inline]
-    fn bsd_result<T: BsdResult>(&mut self, ret: T) {
+    fn bsd_return<T: BsdResult>(&mut self, ret: T, ok: bool) {
         self.args[0] = ret.as_result();
-        self.args[1] = 0;
         self.spsr &= !PSTATE_C;
+        self.spsr |= (ok as u64).wrapping_sub(1) & PSTATE_C;
     }
 }
 
@@ -199,9 +165,9 @@ impl Syscall<'_> {
 }
 
 impl Syscall<'_> {
+    #[inline]
     pub fn finalize(self) {
         self.cpu.write_reg(Reg::X0, self.args[0]);
-        self.cpu.write_reg(Reg::X1, self.args[1]);
         self.cpu.write_sys_reg(SysReg::SPSR_EL1, self.spsr);
     }
 }

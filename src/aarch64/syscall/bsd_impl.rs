@@ -16,15 +16,13 @@ impl Syscall<'_> {
                         }
                     )*
                     BsdSyscall::Unknown(..) => {
-                        self.bsd_error(libc::ENOSYS);
+                        self.bsd_return(libc::ENOSYS, false);
                     },
                 }
             };
             (@CALL $name:ident $(, $args:expr)?) =>  {
-                match bsd::$name(self.cpu $(, $args)?) {
-                    Err(err) => self.bsd_error(err.raw_os_error().unwrap_or(-1)),
-                    Ok(ret) => self.bsd_result(ret),
-                }
+                let (ret, ok) = bsd::$name(self.cpu $(, $args)?);
+                self.bsd_return(ret, ok);
             };
             (@CASE $name:ident [($args:ident)]) => { BsdSyscall::$name($args) };
             (@CASE $name:ident [(..)]) => { BsdSyscall::$name(..) };
@@ -105,7 +103,7 @@ impl Syscall<'_> {
             getitimer(args),
             sys_getdtablesize,
             sys_dup2(..),
-            sys_fcntl(..),
+            sys_fcntl(args),
             select(args),
             fsync(..),
             setpriority(..),
@@ -211,7 +209,7 @@ impl Syscall<'_> {
             semsys(..),
             msgsys(..),
             shmsys(..),
-            semctl(..),
+            semctl(args),
             semget(..),
             semop(args),
             msgctl(args),
@@ -343,7 +341,7 @@ impl Syscall<'_> {
             recvfrom_nocancel(args),
             accept_nocancel(args),
             msync_nocancel(args),
-            sys_fcntl_nocancel(..),
+            sys_fcntl_nocancel(args),
             select_nocancel(args),
             fsync_nocancel(..),
             connect_nocancel(args),
@@ -387,7 +385,7 @@ impl Syscall<'_> {
             peeloff(..),
             socket_delegate(..),
             telemetry(..),
-            proc_uuid_policy(..),
+            proc_uuid_policy(args),
             memorystatus_get_level(args),
             system_override(..),
             vfs_purge,
@@ -425,7 +423,7 @@ impl Syscall<'_> {
             guarded_writev_np(args),
             renameatx_np(args),
             mremap_encrypted(args),
-            netagent_trigger(..),
+            netagent_trigger(args),
             stack_snapshot_with_config(args),
             microstackshot(args),
             grab_pgo_data(args),
@@ -439,9 +437,9 @@ impl Syscall<'_> {
             necp_client_action(args),
             __nexus_open(args),
             __nexus_register(args),
-            __nexus_deregister(..),
+            __nexus_deregister(args),
             __nexus_create(args),
-            __nexus_destroy(..),
+            __nexus_destroy(args),
             __nexus_get_opt(args),
             __nexus_set_opt(args),
             __channel_open(args),
