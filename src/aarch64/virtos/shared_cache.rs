@@ -239,7 +239,6 @@ impl MmioHandler for Mapping {
         if self.entry.sms_max_prot & VM_PROT_ZF != 0 {
             unimplemented!("VM_PROT_ZF for shared cache mappings");
         }
-        // TODO: enable these
         let prot = {
             if self.slider.is_none() {
                 VmMap::lookup(req.addr)

@@ -6,7 +6,6 @@
 #![cfg_attr(target_arch = "aarch64", feature(portable_simd))]
 #![cfg_attr(target_arch = "aarch64", feature(simd_ffi))]
 #![feature(slice_shift)]
-#![feature(specialization)]
 #![allow(incomplete_features)]
 #![allow(internal_features)]
 
