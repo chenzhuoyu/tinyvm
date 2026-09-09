@@ -18,7 +18,6 @@ use object::{
     },
     read::macho::{FatArch, LoadCommandVariant, MachHeader, Segment},
 };
-use parking_lot::Mutex;
 
 use crate::{
     Maybe,
@@ -28,18 +27,16 @@ use crate::{
         path::LibPathNormalizeExt,
         ptr::Uintptr,
     },
+    virtos::mem::VmMap,
 };
-
-type LoadFn = Box<dyn FnMut(Uintptr, usize, Protection, Protection) + Send>;
-type LoadHandler = Option<LoadFn>;
 
 pub struct Image {
     pub data: Memory,
     pub entry: Uintptr,
 }
 
+/// The global singleton image instance to dyld.
 static DYLD: OnceLock<Image> = OnceLock::new();
-static SEGLDR: Mutex<LoadHandler> = Mutex::new(None);
 
 impl Image {
     const CPU_TYPE: u32 = CPU_TYPE_ARM64;
@@ -90,25 +87,6 @@ impl Image {
             }
         }
         Err(anyhow!("cannot find valid architecture in fat binary"))
-    }
-
-    fn load_segment(addr: Uintptr, size: usize, prot: Protection, max_prot: Protection) {
-        if let Some(handler) = SEGLDR.lock().as_deref_mut() {
-            handler(addr, size, prot, max_prot);
-        } else {
-            panic!("missing segment load handler")
-        }
-    }
-}
-
-impl Image {
-    pub fn set_load_handler<F>(f: F)
-    where
-        F: FnMut(Uintptr, usize, Protection, Protection) + Send + 'static,
-    {
-        let mut ldfn = SEGLDR.lock();
-        assert!(ldfn.is_none(), "load handler was already set");
-        *ldfn = Some(Box::new(f));
     }
 }
 
@@ -220,11 +198,12 @@ impl Image {
 
         /* handle loading of each segments */
         for &seg in &segments {
-            Self::load_segment(
+            VmMap::mmap(
                 Uintptr::from(seg.vmaddr.usize() + slide),
                 seg.vmsize.usize(),
-                Protection::from_bits_retain(seg.initprot.value() as u64),
-                Protection::from_bits_retain(seg.maxprot.value() as u64),
+                Protection::from_bits_retain(seg.initprot.value() as i32),
+                Protection::from_bits_retain(seg.maxprot.value() as i32),
+                false,
             );
         }
 

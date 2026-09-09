@@ -1,4 +1,10 @@
-use crate::{aarch64::ffi::*, hv_call, mem::Protection, utils::ptr::Uintptr};
+use crate::{
+    ffi::*,
+    hv_call,
+    mem::Protection,
+    paging::PAGE_SIZE,
+    utils::ptr::{IPA, Uintptr},
+};
 
 pub enum Vm {}
 
@@ -16,16 +22,6 @@ impl Vm {
 
 impl Vm {
     #[inline]
-    pub fn map(addr: Uintptr, size: usize, prot: Protection) {
-        hv_call!(hv_vm_map(addr.as_ptr(), addr.as_u64(), size, prot.bits()));
-    }
-
-    #[inline]
-    pub fn unmap(addr: Uintptr, size: usize) {
-        hv_call!(hv_vm_unmap(addr.as_u64(), size));
-    }
-
-    #[inline]
     pub fn alloc(size: usize) -> Uintptr {
         let mut ret = std::ptr::null_mut();
         hv_call!(hv_vm_allocate(&raw mut ret, size, HV_ALLOCATE_DEFAULT));
@@ -36,9 +32,24 @@ impl Vm {
     pub fn dealloc(addr: Uintptr, size: usize) {
         hv_call!(hv_vm_deallocate(addr.as_ptr(), size));
     }
+}
+
+impl Vm {
+    #[inline]
+    pub fn map(addr: Uintptr, base: IPA, size: usize, prot: Protection) {
+        debug_assert!(base.is_aligned_to(PAGE_SIZE) && size.is_multiple_of(PAGE_SIZE));
+        hv_call!(hv_vm_map(addr.as_ptr(), base.addr(), size, prot.u64()));
+    }
 
     #[inline]
-    pub fn protect(base: Uintptr, size: usize, prot: Protection) {
-        hv_call!(hv_vm_protect(base.as_u64(), size, prot.bits()));
+    pub fn unmap(base: IPA, size: usize) {
+        debug_assert!(base.is_aligned_to(PAGE_SIZE) && size.is_multiple_of(PAGE_SIZE));
+        hv_call!(hv_vm_unmap(base.addr(), size));
+    }
+
+    #[inline]
+    pub fn protect(base: IPA, size: usize, prot: Protection) {
+        debug_assert!(base.is_aligned_to(PAGE_SIZE) && size.is_multiple_of(PAGE_SIZE));
+        hv_call!(hv_vm_protect(base.addr(), size, prot.u64()));
     }
 }

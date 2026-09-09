@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    aarch64::{
+    {
         disasm::disasm,
         ffi::*,
         paging::{MAIR_EL1_INIT, SCTLR_EL1_INIT, TCR_EL1_INIT},

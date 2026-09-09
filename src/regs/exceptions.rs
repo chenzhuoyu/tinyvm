@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use crate::{
-    aarch64::regs::SysReg,
+    regs::SysReg,
     macros::{declare_friendly_enum, define_bit_field},
 };
 

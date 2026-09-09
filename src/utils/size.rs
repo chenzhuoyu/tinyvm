@@ -1,5 +1,4 @@
-#[cfg(target_arch = "aarch64")]
-use crate::aarch64::paging::PAGE_SIZE;
+use crate::paging::PAGE_SIZE;
 
 #[inline(always)]
 pub fn align_to_page(size: usize) -> usize {

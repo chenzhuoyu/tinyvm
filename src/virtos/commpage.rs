@@ -1,5 +1,5 @@
 use crate::{
-    aarch64::{
+    {
         paging::PAGE_SIZE,
         virtos::{
             mem::VmMap,
@@ -37,17 +37,19 @@ fn handle_commpage(pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
 }
 
 pub(super) fn init() {
-    VmMap::map(
+    VmMap::iomap(
         handle_commpage,
         COMMPAGE_RO,
+        COMMPAGE_RO.into(),
         PAGE_SIZE,
         Protection::READ,
         Protection::READ,
         true,
     );
-    VmMap::map(
+    VmMap::iomap(
         handle_commpage,
         COMMPAGE_RW,
+        COMMPAGE_RW.into(),
         PAGE_SIZE,
         Protection::RW,
         Protection::RW,

@@ -1,13 +1,14 @@
 use mach2::{
     kern_return::{KERN_INVALID_ARGUMENT, KERN_SUCCESS, kern_return_t},
     port::MACH_PORT_NULL,
+    traps::mach_task_self,
     vm::{mach_vm_allocate, mach_vm_deallocate, mach_vm_map, mach_vm_protect},
     vm_inherit::VM_INHERIT_DEFAULT,
     vm_prot::{VM_PROT_ALL, VM_PROT_EXECUTE, VM_PROT_READ, VM_PROT_WRITE},
 };
 
 use crate::{
-    aarch64::{
+    {
         cpu::Cpu,
         errors::AsKernReturn,
         paging::PAGE_SIZE,
@@ -15,10 +16,7 @@ use crate::{
             ARG__kernelrpc_mach_vm_allocate_trap, ARG__kernelrpc_mach_vm_deallocate_trap,
             ARG__kernelrpc_mach_vm_map_trap, ARG__kernelrpc_mach_vm_protect_trap,
         },
-        virtos::{
-            mem::{VmKind, VmMap},
-            task::TASK_SELF,
-        },
+        virtos::mem::VmMap,
     },
     mem::Protection,
     utils::{ptr::Uintptr, size::align_to_page},
@@ -28,7 +26,7 @@ pub fn _kernelrpc_mach_vm_allocate_trap(
     _cpu: &Cpu,
     args: ARG__kernelrpc_mach_vm_allocate_trap,
 ) -> kern_return_t {
-    let task = *TASK_SELF;
+    let task = unsafe { mach_task_self() };
     let result = unsafe { mach_vm_allocate(args.target, args.addr, args.size, args.flags) };
 
     /* not targeting self, just forward the result */
@@ -39,10 +37,9 @@ pub fn _kernelrpc_mach_vm_allocate_trap(
     /* get the allocated address */
     let size = args.size as usize;
     let addr = unsafe { Uintptr::from(*args.addr) };
-    let prot = Protection::RW;
 
     /* insert into VM map */
-    VmMap::map(VmKind::Regular, addr, size, prot, Protection::all(), false);
+    VmMap::mmap(addr, size, Protection::RW, Protection::all(), false);
     KERN_SUCCESS
 }
 
@@ -50,7 +47,7 @@ pub fn _kernelrpc_mach_vm_deallocate_trap(
     cpu: &Cpu,
     args: ARG__kernelrpc_mach_vm_deallocate_trap,
 ) -> kern_return_t {
-    if args.target == *TASK_SELF {
+    if args.target == unsafe { mach_task_self() } {
         VmMap::unmap(args.address, args.size as usize);
         cpu.flush_tlb(args.address, (args.size as usize).div_ceil(PAGE_SIZE));
     }
@@ -61,12 +58,12 @@ pub fn _kernelrpc_mach_vm_protect_trap(
     cpu: &Cpu,
     mut args: ARG__kernelrpc_mach_vm_protect_trap,
 ) -> kern_return_t {
+    let task = unsafe { mach_task_self() };
     let size = align_to_page(args.size as usize);
-    let task_self = *TASK_SELF;
 
     /* handle the memory protection for self-targeting maps */
-    if args.target == task_self {
-        let Some(prot) = Protection::from_bits(args.new_protection as u64) else {
+    if args.target == task {
+        let Some(prot) = Protection::from_bits(args.new_protection) else {
             return KERN_INVALID_ARGUMENT;
         };
         if let Err(err) = VmMap::protect(cpu, args.address, size, prot, args.set_maximum != 0) {
@@ -111,7 +108,7 @@ pub fn _kernelrpc_mach_vm_map_trap(
     let mut max_prot = Protection::NONE;
 
     /* never map as executable at host side when targeting self */
-    if args.target == *TASK_SELF {
+    if args.target == unsafe { mach_task_self() } {
         map_prot &= !VM_PROT_EXECUTE;
     }
 
@@ -133,7 +130,7 @@ pub fn _kernelrpc_mach_vm_map_trap(
     };
 
     /* handle the syscall only if it's self-targeting and successful */
-    if args.target != *TASK_SELF || result != KERN_SUCCESS {
+    if result != KERN_SUCCESS || args.target != unsafe { mach_task_self() } {
         return result;
     }
 
@@ -152,6 +149,6 @@ pub fn _kernelrpc_mach_vm_map_trap(
     let addr = unsafe { Uintptr::from(*args.address) };
 
     /* insert into page table */
-    VmMap::map(VmKind::Regular, addr, size, cur_prot, max_prot, false);
+    VmMap::mmap(addr, size, cur_prot, max_prot, false);
     KERN_SUCCESS
 }

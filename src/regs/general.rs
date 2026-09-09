@@ -1,4 +1,4 @@
-use crate::{aarch64::ffi::*, macros::declare_friendly_enum};
+use crate::{ffi::*, macros::declare_friendly_enum};
 
 declare_friendly_enum! {
     pub enum Reg : hv_reg_t [ u32 ] => HV_REG_ :: {

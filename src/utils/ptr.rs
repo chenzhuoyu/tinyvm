@@ -7,45 +7,30 @@ use fn_ptr::{FnPtr, UntypedFnPtr};
 
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Uintptr(usize);
+pub struct IPA(u64);
 
-impl Uintptr {
-    pub const NIL: Self = Self(0);
-}
-
-impl Uintptr {
+impl From<Uintptr> for IPA {
     #[inline(always)]
-    pub const fn new(addr: usize) -> Self {
-        Self(addr)
+    fn from(ptr: Uintptr) -> Self {
+        Self(ptr.as_u64())
     }
 }
+
+impl PartialEq<Uintptr> for IPA {
+    #[inline(always)]
+    fn eq(&self, other: &Uintptr) -> bool {
+        self.addr() == other.as_u64()
+    }
+}
+
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Uintptr(usize);
 
 impl Uintptr {
     #[inline(always)]
     pub fn from_fn(ptr: impl FnPtr) -> Self {
         Self(ptr.addr())
-    }
-}
-
-impl Uintptr {
-    #[inline(always)]
-    pub const fn addr(self) -> usize {
-        self.0
-    }
-
-    #[inline(always)]
-    pub const fn is_nil(self) -> bool {
-        self.0 == 0
-    }
-
-    #[inline(always)]
-    pub const fn align_down(self, size: usize) -> Self {
-        Self(self.0 - self.0 % size)
-    }
-
-    #[inline(always)]
-    pub const fn is_aligned_to(self, size: usize) -> bool {
-        self.0.is_multiple_of(size)
     }
 }
 
@@ -90,39 +75,10 @@ impl Uintptr {
     }
 }
 
-macro_rules! impl_operator {
-    ($($op:ident : $ty:ty => $rty:ty [$($action:tt)*]),* $(,)?) => {
-        paste::paste! {
-            $(
-                impl $op<$ty> for Uintptr {
-                    type Output = Self;
-
-                    #[inline(always)]
-                    fn [< $op:lower >](self, rhs: $ty) -> Self {
-                        Self(self.0 $($action)* (rhs as $rty))
-                    }
-                }
-
-                impl [< $op Assign >]<$ty> for Uintptr {
-                    #[inline(always)]
-                    fn [< $op:lower _assign >](&mut self, rhs: $ty) {
-                        *self = $op::[< $op:lower >](*self, rhs);
-                    }
-                }
-            )*
-        }
-    };
-}
-
-impl Debug for Uintptr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        Pointer::fmt(self, f)
-    }
-}
-
-impl Pointer for Uintptr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "0x{:x}", self.0)
+impl From<IPA> for Uintptr {
+    #[inline(always)]
+    fn from(addr: IPA) -> Self {
+        Self::from(addr.addr())
     }
 }
 
@@ -154,28 +110,119 @@ impl<T> From<*const T> for Uintptr {
     }
 }
 
-impl_operator! {
-    Add : u32   => usize [ .wrapping_add ] ,
-    Add : u64   => usize [ .wrapping_add ] ,
-    Add : usize => usize [ .wrapping_add ] ,
-    Add : i32   => isize [ .wrapping_add_signed ],
-    Add : i64   => isize [ .wrapping_add_signed ],
-    Add : isize => isize [ .wrapping_add_signed ],
-    Sub : u32   => usize [ .wrapping_sub ],
-    Sub : u64   => usize [ .wrapping_sub ],
-    Sub : usize => usize [ .wrapping_sub ],
-    Sub : i32   => isize [ .wrapping_sub_signed ],
-    Sub : i64   => isize [ .wrapping_sub_signed ],
-    Sub : isize => isize [ .wrapping_sub_signed ],
+impl PartialEq<IPA> for Uintptr {
+    #[inline(always)]
+    fn eq(&self, other: &IPA) -> bool {
+        self.as_u64() == other.addr()
+    }
 }
 
-impl Sub for Uintptr {
-    type Output = usize;
+macro_rules! impl_addr_operator {
+    (impl $addr:ident { $($op:ident : $ty:ty => $rty:ty [$($action:tt)*]),* $(,)? }) => {
+        paste::paste! {
+            $(
+                impl $op<$ty> for $addr {
+                    type Output = Self;
 
-    #[inline]
-    fn sub(self, rhs: Self) -> usize {
-        self.0
-            .checked_sub(rhs.0)
-            .expect("pointer subtraction underflow")
-    }
+                    #[inline(always)]
+                    fn [< $op:lower >](self, rhs: $ty) -> Self {
+                        Self(self.0 $($action)* (rhs as $rty))
+                    }
+                }
+
+                impl [< $op Assign >]<$ty> for $addr {
+                    #[inline(always)]
+                    fn [< $op:lower _assign >](&mut self, rhs: $ty) {
+                        *self = $op::[< $op:lower >](*self, rhs);
+                    }
+                }
+            )*
+        }
+    };
+}
+
+macro_rules! derive_pointer_types {
+    ($($name:ident : ($uty:ty, $sty:ty)),+ $(,)?) => {
+        $(
+            impl $name {
+                pub const NIL: Self = Self(0);
+            }
+
+            impl $name {
+                #[inline(always)]
+                pub const fn new(addr: $uty) -> Self {
+                    Self(addr)
+                }
+            }
+
+            impl $name {
+                #[inline(always)]
+                pub const fn addr(self) -> $uty {
+                    self.0
+                }
+            }
+
+            impl $name {
+                #[inline(always)]
+                pub const fn is_nil(self) -> bool {
+                    self.0 == 0
+                }
+
+                #[inline(always)]
+                pub const fn align_down(self, size: usize) -> Self {
+                    Self(self.0 - self.0 % (size as $uty))
+                }
+
+                #[inline(always)]
+                pub const fn is_aligned_to(self, size: usize) -> bool {
+                    self.0.is_multiple_of(size as $uty)
+                }
+            }
+
+            impl Debug for $name {
+                fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+                    Pointer::fmt(self, f)
+                }
+            }
+
+            impl Pointer for $name {
+                fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+                    write!(f, "0x{:x}", self.0)
+                }
+            }
+
+            impl_addr_operator! {
+                impl $name {
+                    Add : u32   => $uty [ .wrapping_add ] ,
+                    Add : u64   => $uty [ .wrapping_add ] ,
+                    Add : usize => $uty [ .wrapping_add ] ,
+                    Add : i32   => $sty [ .wrapping_add_signed ],
+                    Add : i64   => $sty [ .wrapping_add_signed ],
+                    Add : isize => $sty [ .wrapping_add_signed ],
+                    Sub : u32   => $uty [ .wrapping_sub ],
+                    Sub : u64   => $uty [ .wrapping_sub ],
+                    Sub : usize => $uty [ .wrapping_sub ],
+                    Sub : i32   => $sty [ .wrapping_sub_signed ],
+                    Sub : i64   => $sty [ .wrapping_sub_signed ],
+                    Sub : isize => $sty [ .wrapping_sub_signed ],
+                }
+            }
+
+            impl Sub for $name {
+                type Output = usize;
+
+                #[inline(always)]
+                fn sub(self, rhs: Self) -> usize {
+                    self.0
+                        .checked_sub(rhs.0)
+                        .expect("pointer subtraction underflow") as usize
+                }
+            }
+        )+
+    };
+}
+
+derive_pointer_types! {
+    IPA     : (u64, i64),
+    Uintptr : (usize, isize),
 }

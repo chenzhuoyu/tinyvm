@@ -1,11 +1,11 @@
 use crate::{
-    aarch64::{
+    {
         regs::{SCTLR_EL1, TCR_EL1},
         vm::Vm,
     },
     macros::define_bit_field,
     mem::Protection,
-    utils::ptr::Uintptr,
+    utils::ptr::{IPA, Uintptr},
 };
 
 define_bit_field! {
@@ -245,7 +245,7 @@ impl Entry {
 
 impl Entry {
     #[inline]
-    fn set_page(&mut self, phys: Uintptr, prot: Protection, max_prot: Protection) {
+    fn set_page(&mut self, phys: IPA, prot: Protection, max_prot: Protection) {
         self.page = PageDescriptor::builder()
             .valid(1)
             .ty(1)
@@ -255,12 +255,12 @@ impl Entry {
             .SH(0b11)
             .AF(1)
             .nG(0)
-            .phys_addr(phys.as_u64() / (PAGE_SIZE as u64))
+            .phys_addr(phys.addr() / (PAGE_SIZE as u64))
             .DBM(0)
             .Contig(0)
             .PXN(prot.nx())
             .UXN(prot.nx())
-            .user_data(max_prot.bits())
+            .user_data(max_prot.u64())
             .build();
     }
 
@@ -269,7 +269,7 @@ impl Entry {
         unsafe {
             if self.table.valid() == 0 {
                 let next = Vm::alloc(PAGE_SIZE);
-                Vm::map(next, PAGE_SIZE, Protection::RW);
+                Vm::map(next, next.into(), PAGE_SIZE, Protection::RW);
                 self.table = TableDescriptor::new(next.as_u64() / (PAGE_SIZE as u64));
                 next.as_mut()
             } else {
@@ -334,11 +334,11 @@ impl PageTable {
 }
 
 impl PageTable {
-    pub fn set(&mut self, addr: Uintptr, prot: Protection, max_prot: Protection) {
+    pub fn set(&mut self, addr: Uintptr, phys: IPA, prot: Protection, max_prot: Protection) {
         let (l1, l2, l3) = Self::index(addr);
         let next = self.0[l1].set_table();
         let next = next[l2].set_table();
-        next[l3].set_page(addr, prot, max_prot);
+        next[l3].set_page(phys, prot, max_prot);
     }
 
     pub fn unset(&mut self, addr: Uintptr, num_pages: usize) {
@@ -359,14 +359,16 @@ impl PageTable {
 
     pub fn prefault(
         &mut self,
+        mut phys: IPA,
         mut addr: Uintptr,
-        end: Uintptr,
+        next: Uintptr,
         prot: Protection,
         max_prot: Protection,
     ) {
-        while addr < end {
-            self.set(addr, prot, max_prot);
+        while addr < next {
+            self.set(addr, phys, prot, max_prot);
             addr += PAGE_SIZE;
+            phys += PAGE_SIZE;
         }
     }
 }

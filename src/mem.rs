@@ -5,18 +5,18 @@ use std::{
 
 use ffi::{HV_MEMORY_EXEC, HV_MEMORY_READ, HV_MEMORY_WRITE};
 
-#[cfg(target_arch = "aarch64")]
-use crate::aarch64::{ffi, vm::Vm};
-use crate::utils::{ptr::Uintptr, size::align_to_page};
-#[cfg(target_arch = "x86_64")]
-use crate::x86_64::ffi;
+use crate::{
+    ffi,
+    utils::{ptr::Uintptr, size::align_to_page},
+    vm::Vm,
+};
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Protection : u64 {
-        const EXEC  = HV_MEMORY_EXEC;
-        const READ  = HV_MEMORY_READ;
-        const WRITE = HV_MEMORY_WRITE;
+    pub struct Protection : i32 {
+        const EXEC  = HV_MEMORY_EXEC as i32;
+        const READ  = HV_MEMORY_READ as i32;
+        const WRITE = HV_MEMORY_WRITE as i32;
     }
 }
 
@@ -24,6 +24,13 @@ impl Protection {
     pub const RX: Self = Self::READ.union(Self::EXEC);
     pub const RW: Self = Self::READ.union(Self::WRITE);
     pub const NONE: Self = Self::empty();
+}
+
+impl Protection {
+    #[inline(always)]
+    pub const fn u64(self) -> u64 {
+        self.bits() as u64
+    }
 }
 
 impl Debug for Protection {

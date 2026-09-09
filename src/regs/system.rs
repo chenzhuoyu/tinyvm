@@ -1,4 +1,4 @@
-use crate::{aarch64::ffi::*, macros::declare_friendly_enum};
+use crate::{ffi::*, macros::declare_friendly_enum};
 
 const fn mksreg(op0: u16, op1: u16, crn: u16, crm: u16, op2: u16) -> u16 {
     assert!(op0 & !0b11 == 0);

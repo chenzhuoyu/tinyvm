@@ -14,14 +14,14 @@ use parking_lot::{Mutex, RwLock};
 use smallvec::SmallVec;
 
 use crate::{
-    aarch64::{
+    {
         cpu::Cpu,
         disasm::disasm,
         paging::PAGE_SIZE,
         syscall::bsd::{shared_file_np, shared_mapping_np},
         virtos::{
             faults,
-            mem::{VmKind, VmMap},
+            mem::VmMap,
             mmio::{MmioHandler, MmioRequest, MmioResponse},
             pac::SigningKey,
         },
@@ -246,20 +246,21 @@ impl MmioHandler for Mapping {
                 Protection::RW
             }
         };
-        faults::fetch_page(
-            pc,
-            req.addr,
-            self.base,
-            prot,
-            &mut *self.file.lock(),
-            self.entry.sms_file_offset as usize,
-        );
+        todo!();
+        // faults::fetch_page(
+        //     pc,
+        //     req.addr,
+        //     self.base,
+        //     prot,
+        //     &mut *self.file.lock(),
+        //     self.entry.sms_file_offset as usize,
+        // );
         if let Some(slider) = self.slider.as_ref() {
             let page = req.addr.align_down(PAGE_SIZE);
             let prot = VmMap::lookup(page);
             slider.slide(pc, page, self.base);
             Self::sys_protect(page, PAGE_SIZE, prot & !Protection::EXEC);
-            Vm::protect(page, PAGE_SIZE, prot);
+            Vm::protect(page.into(), PAGE_SIZE, prot);
         }
         MmioResponse::Retry
     }
@@ -410,8 +411,8 @@ pub fn shared_region_map_and_slide_2_np(
             let size = item.sms_size as usize;
 
             /* calculate protection bits */
-            let prot = Protection::from_bits_truncate(item.sms_init_prot as u64);
-            let max_prot = Protection::from_bits_truncate(item.sms_max_prot as u64);
+            let prot = Protection::from_bits_truncate(item.sms_init_prot);
+            let max_prot = Protection::from_bits_truncate(item.sms_max_prot);
 
             /* we need to load the page immediately if map from self */
             let Some(file) = file.clone() else {
@@ -420,7 +421,7 @@ pub fn shared_region_map_and_slide_2_np(
                         let src = item.sms_file_offset as *const u8;
                         std::ptr::copy_nonoverlapping(src, addr.as_ptr(), size);
                         Mapping::sys_protect(addr, size, prot & !Protection::EXEC);
-                        VmMap::map(VmKind::Regular, addr, size, prot, max_prot, true);
+                        VmMap::mmap(addr, size, prot, max_prot, false);
                         continue;
                     }
                 } else {
@@ -461,19 +462,20 @@ pub fn shared_region_map_and_slide_2_np(
             };
 
             /* register the mapping into VM map */
-            VmMap::map(
-                Mapping {
-                    base: addr,
-                    file,
-                    entry: item,
-                    slider,
-                },
-                addr,
-                size,
-                prot,
-                max_prot,
-                true,
-            );
+            todo!();
+            // VmMap::map(
+            //     Mapping {
+            //         base: addr,
+            //         file,
+            //         entry: item,
+            //         slider,
+            //     },
+            //     addr,
+            //     size,
+            //     prot,
+            //     max_prot,
+            //     true,
+            // );
         }
     }
 

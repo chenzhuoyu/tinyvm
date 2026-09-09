@@ -1,4 +1,4 @@
-use tinyvm::{Unit, aarch64::vm_exec};
+use tinyvm::{Unit, vm_exec};
 use tracing_core::LevelFilter;
 use tracing_subscriber::{
     EnvFilter, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,

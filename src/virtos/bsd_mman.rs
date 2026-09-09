@@ -7,13 +7,13 @@ use std::{
 use parking_lot::Mutex;
 
 use crate::{
-    aarch64::{
+    {
         cpu::Cpu,
         disasm::disasm,
         paging::PAGE_SIZE,
         virtos::{
             faults,
-            mem::{VmKind, VmMap},
+            mem::VmMap,
             mmio::{MmioHandler, MmioKind, MmioRequest, MmioResponse},
         },
     },
@@ -51,7 +51,8 @@ impl MmioHandler for FileMap {
     fn handle(&self, pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
         let prot = VmMap::lookup(req.addr);
         let mut file = self.file.lock();
-        faults::fetch_page(pc, req.addr, self.base, prot, &mut *file, self.offset);
+        // faults::fetch_page(pc, req.addr, self.base, prot, &mut *file, self.offset);
+        todo!();
         MmioResponse::Retry
     }
 }
@@ -128,7 +129,7 @@ fn map_regular(
             mem => Uintptr::from(mem),
         }
     };
-    VmMap::map(VmKind::Regular, addr, size, prot, Protection::all(), false);
+    VmMap::mmap(addr, size, prot, Protection::all(), false);
     Ok(addr)
 }
 
@@ -140,31 +141,29 @@ fn map_from_file(
     fd: i32,
     offset: libc::off_t,
 ) -> IoResult<Uintptr> {
-    if offset % (PAGE_SIZE as i64) != 0 {
-        return Err(IoError::from_raw_os_error(libc::EINVAL));
-    }
     let addr = unsafe {
         Uintptr::from(libc::mmap(
             addr.as_ptr(),
             size,
             libc::PROT_NONE,
-            libc::MAP_PRIVATE | libc::MAP_ANON,
-            -1,
-            0,
+            flags,
+            fd,
+            offset,
         ))
     };
     if addr.as_ptr() == libc::MAP_FAILED {
         return Err(IoError::last_os_error());
     }
-    VmMap::map(
-        FileMap::new(addr, fd, flags, offset),
-        addr,
-        size,
-        prot,
-        Protection::all(),
-        false,
-    );
-    Ok(addr)
+    todo!()
+    // VmMap::iomap(
+    //     FileMap::new(addr, fd, flags, offset),
+    //     addr,
+    //     size,
+    //     prot,
+    //     Protection::all(),
+    //     false,
+    // );
+    // Ok(addr)
 }
 
 fn map_from_object(
@@ -188,15 +187,16 @@ fn map_from_object(
     if addr.as_ptr() == libc::MAP_FAILED {
         return Err(IoError::last_os_error());
     }
-    VmMap::map(
-        ObjectMap::map(addr, size),
-        addr,
-        size,
-        prot,
-        Protection::all(),
-        false,
-    );
-    Ok(addr)
+    todo!()
+    // VmMap::map(
+    //     ObjectMap::map(addr, size),
+    //     addr,
+    //     size,
+    //     prot,
+    //     Protection::all(),
+    //     false,
+    // );
+    // Ok(addr)
 }
 
 pub fn msync(_cpu: &Cpu, addr: Uintptr, len: usize, flags: i32) -> IoResult<()> {
@@ -216,7 +216,7 @@ pub fn munmap(cpu: &Cpu, addr: Uintptr, len: usize) -> IoResult<()> {
 }
 
 pub fn mprotect(cpu: &Cpu, addr: Uintptr, len: usize, raw_prot: i32) -> IoResult<()> {
-    if let Some(prot) = Protection::from_bits(raw_prot as u64) {
+    if let Some(prot) = Protection::from_bits(raw_prot) {
         sys_protect(addr, prot & !Protection::EXEC)?;
         VmMap::protect(cpu, addr, len, prot, false)
     } else {
@@ -240,7 +240,7 @@ pub fn mmap(
             align_to_page(len)
         }
     };
-    let Some(prot) = Protection::from_bits(prot as u64) else {
+    let Some(prot) = Protection::from_bits(prot) else {
         return Err(IoError::from_raw_os_error(libc::EINVAL));
     };
     if flags & libc::MAP_ANON != 0 {

@@ -6,6 +6,7 @@ use mach2::{
     },
     ndr::NDR_record_t,
     port::{MACH_PORT_NULL, mach_port_t},
+    traps::mach_task_self,
     vm::mach_vm_map,
     vm_inherit::VM_INHERIT_DEFAULT,
     vm_prot::{VM_PROT_ALL, VM_PROT_ALLEXEC, VM_PROT_EXECUTE, VM_PROT_READ, VM_PROT_WRITE},
@@ -13,15 +14,12 @@ use mach2::{
 };
 
 use crate::{
-    aarch64::{
+    {
         cpu::Cpu,
         syscall::mach::{
             ARG_mach_msg_overwrite_trap, ARG_mach_msg_trap, ARG_mach_msg2_trap, mach_msg_option64_t,
         },
-        virtos::{
-            mem::{VmKind, VmMap},
-            task::TASK_SELF,
-        },
+        virtos::mem::VmMap,
     },
     mem::Protection,
     utils::{ptr::Uintptr, size::align_to_page},
@@ -245,19 +243,21 @@ fn handle_mach_vm_map(_cpu: &Cpu, mut req: mach_vm_map_request, port: Responder)
         unimplemented!("mach_vm_map() message with non-zero port");
     }
 
-    // FIXME: this is a hack to get around the address space reservation for xzone malloc, to
-    // implement this correctly, we may need to implement full virtual address translation, and
-    // perform memory copy and / or address translation on every syscall boundary, rather than
-    // identity mapping (PA=IPA).
+    // FIXME: This is a hack to get around the address space reservation for xzone malloc, it
+    // hard-codes the starting virtual address while the flags does not have VM_FLAGS_ANYWHERE.
+    //
+    // Unfortunately it conflicts with the host process'es memory layout, so we force a
+    // VM_FLAGS_ANYWHERE if this happens.
+    //
+    // We should figure out how to avoid hitting this code path entirely.
     if req.hack_is_xzm_region_alloc() {
-        addr = 0;
         req.flags |= VM_FLAGS_ANYWHERE;
     }
 
     /* perform the actual memory map */
     let status = unsafe {
         mach_vm_map(
-            *TASK_SELF,
+            mach_task_self(),
             &raw mut addr,
             req.size,
             req.mask,
@@ -278,8 +278,7 @@ fn handle_mach_vm_map(_cpu: &Cpu, mut req: mach_vm_map_request, port: Responder)
     }
 
     /* insert into page table */
-    VmMap::map(
-        VmKind::Regular,
+    VmMap::mmap(
         Uintptr::from(addr),
         align_to_page(req.size as usize),
         cur_prot,

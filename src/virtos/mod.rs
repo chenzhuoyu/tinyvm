@@ -15,7 +15,7 @@ pub mod tlb;
 use std::io::Error as IoError;
 
 use crate::{
-    aarch64::paging::PAGE_SIZE,
+    paging::PAGE_SIZE,
     mem::Protection,
     utils::{ptr::Uintptr, size::align_to_page},
 };
@@ -78,30 +78,14 @@ pub fn init() {
         std::ptr::copy_nonoverlapping(code.as_ptr(), IRQ_STUBS.as_ptr(), code.len());
     }
 
-    /* insert IRQ stubs into the VM map */
-    mem::VmMap::map(
-        mem::VmKind::Regular,
-        IRQ_STUBS,
-        size,
-        Protection::RX,
-        Protection::RX,
-        true,
-    );
+    /* insert IRQ stubs & EL1 stacks into the VM map */
+    mem::VmMap::mmap(base, PAGE_SIZE, Protection::RW, Protection::RW, true);
+    mem::VmMap::mmap(IRQ_STUBS, size, Protection::RX, Protection::RX, true);
 
     /* log the IRQ stubs range */
     tracing::debug!(
         "IRQ Stubs are loaded into {IRQ_STUBS:p}-{end:p}",
         end = IRQ_STUBS + code.len()
-    );
-
-    /* insert EL1 stack into the VM map */
-    mem::VmMap::map(
-        mem::VmKind::Regular,
-        base,
-        PAGE_SIZE,
-        Protection::RW,
-        Protection::RW,
-        true,
     );
 
     /* log the IRQ stubs range */

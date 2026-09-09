@@ -1,9 +1,9 @@
 use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Seek, SeekFrom};
 
 use crate::{
-    aarch64::{disasm::disasm, paging::PAGE_SIZE, vm::Vm},
+    {disasm::disasm, paging::PAGE_SIZE, vm::Vm},
     mem::Protection,
-    utils::ptr::Uintptr,
+    utils::ptr::{IPA, Uintptr},
 };
 
 fn set_prot(addr: Uintptr, prot: Protection) -> IoResult<()> {
@@ -17,12 +17,13 @@ fn set_prot(addr: Uintptr, prot: Protection) -> IoResult<()> {
 fn do_fetch_page<F: Read + Seek>(
     addr: Uintptr,
     base: Uintptr,
+    phys: IPA,
     prot: Protection,
     file: &mut F,
     offset: usize,
 ) -> IoResult<()> {
     let dist = (addr - base) & !(PAGE_SIZE - 1);
-    let base = base + dist;
+    let (base, phys) = (base + dist, phys + dist);
 
     /* sanity check the calculated address */
     debug_assert!(
@@ -49,7 +50,7 @@ fn do_fetch_page<F: Read + Seek>(
 
     /* map the loaded page into guest space */
     set_prot(base, prot & !Protection::EXEC)?;
-    Vm::map(base, PAGE_SIZE, prot);
+    Vm::map(base, phys, PAGE_SIZE, prot);
     Ok(())
 }
 
@@ -57,11 +58,12 @@ pub fn fetch_page<F: Read + Seek>(
     pc: Uintptr,
     addr: Uintptr,
     base: Uintptr,
+    phys: IPA,
     prot: Protection,
     file: &mut F,
     offset: usize,
 ) {
-    do_fetch_page(addr, base, prot, file, offset).unwrap_or_else(|err| {
+    do_fetch_page(addr, base, phys, prot, file, offset).unwrap_or_else(|err| {
         panic!(
             "cannot fetch page at {addr:p}\nInstruction:\n  {insn}\nError:\n  {err}",
             insn = disasm(pc)
