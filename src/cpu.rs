@@ -4,20 +4,18 @@ use std::{
 };
 
 use crate::{
-    {
-        disasm::disasm,
-        ffi::*,
-        paging::{MAIR_EL1_INIT, SCTLR_EL1_INIT, TCR_EL1_INIT},
-        regs::*,
-        syscall::Syscall,
-        virtos::{
-            IRQ_STUBS, STACK_TOP,
-            mem::VmMap,
-            mmio::{MmioKind, MmioRequest, MmioResponse},
-        },
-    },
+    disasm::disasm,
+    ffi::*,
     hv_call,
+    paging::{MAIR_EL1_INIT, SCTLR_EL1_INIT, TCR_EL1_INIT},
+    regs::*,
+    syscall::Syscall,
     utils::{ptr::Uintptr, str::Sz},
+    virtos::{
+        IRQ_STUBS, STACK_TOP,
+        mem::VmMap,
+        mmio::{MmioKind, MmioRequest, MmioResponse},
+    },
 };
 
 #[derive(Clone, Copy)]

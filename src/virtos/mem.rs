@@ -83,16 +83,16 @@ struct VmRegion {
 }
 
 impl VmRegion {
-    fn map(&self, addr: Uintptr) {
+    fn map(&self) {
         if self.kind.is_regular() {
             assert_eq!(self.base.phys, self.base.virt);
-            Vm::map(addr, self.base.phys, self.size, self.prot);
+            Vm::map(self.base.virt, self.base.phys, self.size, self.prot);
         }
     }
 
-    fn unmap(&self, addr: Uintptr, size: usize) {
+    fn unmap(&self, base: Uintptr, addr: Uintptr, size: usize) {
         if self.populated || self.kind.is_regular() {
-            Vm::unmap(addr.into(), size);
+            Vm::unmap(self.base.phys + (addr - base), size);
         }
     }
 }
@@ -175,7 +175,7 @@ impl VmMap {
 
         /* remove existing mappings before adding new one */
         self.unmap_range(addr, size);
-        region.map(addr);
+        region.map();
         self.maps.insert(addr, region);
 
         /* prefault the pages if needed */
@@ -221,7 +221,11 @@ impl VmMap {
                     }
                 });
             }
-            // region.unmap(base.max(addr), region.next.min(addr + size));
+            region.unmap(
+                base,
+                base.max(addr),
+                (base + region.size).min(addr + size) - base.max(addr),
+            );
         }
         self.page.unset(addr, size / PAGE_SIZE);
     }
@@ -357,8 +361,8 @@ impl VmMap {
             }
         };
         region.prot.contains(mask) && {
-            self.page
-                .set(addr, region.base.phys, region.prot, region.max_prot);
+            let phys = region.base.phys + (addr - region.base.virt);
+            self.page.set(addr, phys, region.prot, region.max_prot);
             region.populated = true;
             true
         }
