@@ -2,7 +2,7 @@ use std::{
     collections::BTreeMap,
     fmt::{Debug, Formatter, Result as FmtResult},
     io::{Error as IoError, Result as IoResult},
-    ops::{Add, Deref, DerefMut},
+    ops::{Deref, DerefMut},
     sync::Arc,
 };
 
@@ -60,18 +60,6 @@ impl VmBase {
     }
 }
 
-impl Add<usize> for VmBase {
-    type Output = Self;
-
-    #[inline]
-    fn add(self, rhs: usize) -> Self {
-        Self {
-            phys: self.phys + rhs,
-            virt: self.virt + rhs,
-        }
-    }
-}
-
 #[derive(Debug)]
 struct VmRegion {
     size: usize,
@@ -83,16 +71,77 @@ struct VmRegion {
 }
 
 impl VmRegion {
-    fn map(&self) {
+    #[inline]
+    fn end(&self) -> Uintptr {
+        self.base.virt + self.size
+    }
+
+    #[inline]
+    fn init(&self) {
         if self.kind.is_regular() {
             assert_eq!(self.base.phys, self.base.virt);
             Vm::map(self.base.virt, self.base.phys, self.size, self.prot);
         }
     }
+}
 
-    fn unmap(&self, base: Uintptr, addr: Uintptr, size: usize) {
+impl VmRegion {
+    #[inline]
+    fn update(&mut self, prot: Protection, set_max: bool) {
+        if set_max {
+            self.max_prot = prot;
+        }
+        self.prot = prot;
+    }
+
+    #[inline]
+    fn split_to(&mut self, offs: usize) -> Self {
+        assert!(
+            offs < self.size,
+            "splitting at an offset past it's current boundary"
+        );
+        let region = Self {
+            size: offs,
+            kind: self.kind.clone(),
+            base: self.base,
+            prot: self.prot,
+            max_prot: self.max_prot,
+            populated: self.populated,
+        };
+        self.size -= offs;
+        self.base.virt += offs;
+        self.base.phys += offs;
+        region
+    }
+
+    #[inline]
+    fn split_off(&mut self, offs: usize) -> Self {
+        assert!(
+            offs < self.size,
+            "splitting off more spaces than it currently have"
+        );
+        let new_base = VmBase {
+            phys: self.base.phys + offs,
+            virt: self.base.virt + offs,
+        };
+        let region = Self {
+            size: self.size - offs,
+            kind: self.kind.clone(),
+            base: new_base,
+            prot: self.prot,
+            max_prot: self.max_prot,
+            populated: self.populated,
+        };
+        self.size -= offs;
+        region
+    }
+}
+
+impl Drop for VmRegion {
+    #[inline]
+    fn drop(&mut self) {
         if self.populated || self.kind.is_regular() {
-            Vm::unmap(self.base.phys + (addr - base), size);
+            Vm::unmap(self.base.phys, self.size);
         }
     }
 }
@@ -164,7 +213,7 @@ impl VmMap {
         let next = addr + size;
 
         /* construct the VM region */
-        let region = VmRegion {
+        let item = VmRegion {
             base,
             kind,
             size,
@@ -175,8 +224,8 @@ impl VmMap {
 
         /* remove existing mappings before adding new one */
         self.unmap_range(addr, size);
-        region.map();
-        self.maps.insert(addr, region);
+        item.init();
+        self.maps.insert(addr, item);
 
         /* prefault the pages if needed */
         if prefault {
@@ -189,43 +238,22 @@ impl VmMap {
             .maps
             .range(..addr + size)
             .rev()
-            .take_while(|&(&p, r)| p + r.size > addr)
+            .take_while(|&(.., r)| r.end() > addr)
             .map(|(&p, ..)| p)
             .collect::<SmallVec<[Uintptr; 16]>>();
         for base in keys {
-            let region = self
+            let mut region = self
                 .maps
                 .remove(&base)
                 .unwrap_or_else(|| unsafe { std::intrinsics::unreachable() });
             if base < addr {
-                self.maps.insert(base, {
-                    VmRegion {
-                        base: region.base,
-                        size: addr - base,
-                        kind: region.kind.clone(),
-                        prot: region.prot,
-                        max_prot: region.max_prot,
-                        populated: region.populated,
-                    }
-                });
+                let head = region.split_to(addr - base);
+                self.maps.insert(base, head);
             }
-            if base + region.size > addr + size {
-                self.maps.insert(addr + size, {
-                    VmRegion {
-                        base: region.base + (addr + size - base),
-                        size: base + region.size - (addr + size),
-                        kind: region.kind.clone(),
-                        prot: region.prot,
-                        max_prot: region.max_prot,
-                        populated: region.populated,
-                    }
-                });
+            if region.end() > addr + size {
+                let tail = region.split_off(addr + size - region.base.virt);
+                self.maps.insert(addr + size, tail);
             }
-            region.unmap(
-                base,
-                base.max(addr),
-                (base + region.size).min(addr + size) - base.max(addr),
-            );
         }
         self.page.unset(addr, size / PAGE_SIZE);
     }
@@ -239,13 +267,13 @@ impl VmMap {
         set_max: bool,
     ) -> IoResult<()> {
         let mut tlbi = false;
+        let mut rbuf = SmallVec::<[VmRegion; 2]>::new();
         let mut iter = self.maps.range(..addr + size);
-        let mut rbuf = SmallVec::<[(Uintptr, VmRegion); 2]>::new();
 
         /* get the first covered region, make sure the address range doesn't have trailing gaps */
         let mut head = {
             if let Some((&head, region)) = iter.next_back() {
-                if head + region.size < addr + size {
+                if region.end() < addr + size {
                     return Err(IoError::from_raw_os_error(libc::ENOMEM));
                 } else {
                     head
@@ -257,9 +285,9 @@ impl VmMap {
 
         /* perform validations before actually make changes */
         for (&base, region) in iter.rev() {
-            if base + region.size <= addr {
+            if region.end() <= addr {
                 break;
-            } else if base + region.size != head {
+            } else if region.end() != head {
                 return Err(IoError::from_raw_os_error(libc::ENOMEM));
             } else if !prot.difference(region.max_prot).is_empty() {
                 return Err(IoError::from_raw_os_error(libc::EACCES));
@@ -270,47 +298,27 @@ impl VmMap {
 
         /* scan through the regions, split regions as needed */
         for (&base, region) in self.maps.range_mut(head..addr + size).rev() {
-            if base + region.size <= addr {
+            if region.end() <= addr {
                 break;
             }
             if region.populated {
                 tlbi = true;
             }
-            if addr + size < base + region.size {
-                let tail = VmRegion {
-                    base: region.base + (addr + size - base),
-                    size: (base + region.size) - (addr + size),
-                    kind: region.kind.clone(),
-                    prot: region.prot,
-                    max_prot: region.max_prot,
-                    populated: region.populated,
-                };
-                rbuf.push((addr + size, tail));
-                region.size = addr + size - base;
+            if region.end() > addr + size {
+                rbuf.push(region.split_off(addr + size - base));
             }
             if base < addr {
-                let lead = VmRegion {
-                    base: region.base + (addr - base),
-                    size: base + region.size - addr,
-                    kind: region.kind.clone(),
-                    prot,
-                    max_prot: if set_max { prot } else { region.max_prot },
-                    populated: region.populated,
-                };
-                rbuf.push((addr, lead));
-                region.size = addr - base;
+                let mut head = region.split_off(addr - base);
+                head.update(prot, set_max);
+                rbuf.push(head);
             } else {
-                if set_max {
-                    region.max_prot = prot;
-                }
-                region.prot = prot;
-                assert_eq!(addr, base);
+                region.update(prot, set_max);
             }
         }
 
         /* handle block splitting */
-        for (base, region) in rbuf {
-            self.maps.insert(base, region);
+        for region in rbuf {
+            self.maps.insert(region.base.virt, region);
         }
 
         /* check if we need to flush TLB */
@@ -332,7 +340,7 @@ impl VmMap {
             .maps
             .range_mut(..=req.addr)
             .next_back()
-            .filter(|&(&p, ref r)| p + r.size > req.addr)?;
+            .filter(|(.., r)| r.end() > req.addr)?;
         let VmKind::Mmio(mmio) = &region.kind else {
             panic!(
                 "unexpected MMIO fault\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
@@ -346,10 +354,10 @@ impl VmMap {
 
     #[inline]
     fn page_fault_in(&mut self, addr: Uintptr, kind: MmioKind) -> bool {
-        let Some((&base, region)) = self.maps.range_mut(..=addr).next_back() else {
+        let Some((.., region)) = self.maps.range_mut(..=addr).next_back() else {
             return false;
         };
-        if base + region.size <= addr {
+        if region.end() <= addr {
             return false;
         }
         let mask = {
