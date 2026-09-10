@@ -6,74 +6,84 @@ import os
 import subprocess
 import sys
 
-def usage():
-    print(f'Usage: {sys.argv[0]} build [-r]')
-    print(f'       {sys.argv[0]} run [-r] [--] args ...')
-    sys.exit(1)
+from argparse import ArgumentParser
+from argparse import Namespace
 
-def build(is_debug: bool, run_after_build: bool, args: list[str]):
-    def find_binary_name() -> str | None:
-        for pkg in meta['packages']:
-            for target in pkg['targets']:
-                if target['kind'] == ['bin']:
-                    return target['name']
+def cargo(command: str, *args: str) -> str:
+    ps = subprocess.Popen(
+        ['cargo', command, '--message-format=json-render-diagnostics', *args],
+        stdout = subprocess.PIPE,
+        env    = { **os.environ, '__BUILD_WITH_SIGN': 'yes' }
+    )
 
-    # get metadata
-    meta = json.loads(subprocess.check_output([
-        'cargo',
-        'metadata',
-        '--format-version',
-        '1',
-        '--no-deps',
-    ]))
+    # get the entitlement path
+    executable = None
+    entitlement = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'entitlements.xml')
+    assert ps.stdout is not None
 
-    # find binary name, the target path and workspace root
-    profile = 'debug'
-    build_cmd = ['cargo', 'build']
-    binary_name = find_binary_name() or ''
-    target_path = meta['target_directory']
-    workspace_root = meta['workspace_root']
+    # read json output line by line
+    while ps.poll() is None:
+        if line := ps.stdout.readline():
+            if executable is None:
+                data = json.loads(line)
+                executable = data.get('executable')
+        else:
+            break
 
-    # must have a binary name
-    if not binary_name:
-        raise FileNotFoundError('cannot find the output binary name')
+    # wait for cargo to end
+    if ret := ps.wait():
+        sys.exit(ret)
 
-    # select build flags and profile
-    if not is_debug:
-        profile = 'release'
-        build_cmd.append('-r')
+    # cargo must have produced an executable
+    if executable is None:
+        raise RuntimeError('cargo does not produce an executable')
 
-    # build the target
-    subprocess.check_call(build_cmd, env = {
-        **os.environ,
-        '__BUILD_WITH_SIGN': 'yes',
-    })
-
-    # construct the args
-    executable = f'{target_path}/{profile}/{binary_name}'
-    args.insert(0, executable)
-
-    # sign the target
-    subprocess.check_call([
+    # construct the codesign command
+    codesign_cmd = [
         '/usr/bin/codesign',
         '--sign',
         '-',
         '--entitlements',
-        f'{workspace_root}/entitlements.xml',
+        entitlement,
         '--deep',
         '--force',
         executable,
-    ])
+    ]
 
-    # run the binary if needed
-    if run_after_build:
-        os.execve(executable, args, os.environ)
+    # sign the target
+    subprocess.check_call(codesign_cmd, executable = '/usr/bin/codesign')
+    return executable
 
-match sys.argv[1:]:
-    case ['run']                    : build(True, True, [])
-    case ['run', '-r']              : build(False, True, [])
-    case ['run', '--', *args]       : build(True, True, args)
-    case ['run', '-r', '--', *args] : build(False, True, args)
-    case ['build']                  : build(True, False, [])
-    case ['build', '-r']            : build(False, False, [])
-    case _                          : usage()
+ps = ArgumentParser()
+sub = ps.add_subparsers(required = True)
+
+def do_build(args: Namespace):
+    if args.release:
+        cargo('build', '-r')
+    else:
+        cargo('build')
+
+cmd = sub.add_parser('build', help = 'build tinyvm')
+cmd.add_argument('-r', '--release', action = 'store_true', help = 'build for release')
+cmd.set_defaults(handler = do_build)
+
+def do_run(args: Namespace):
+    target = cargo('build', '-r') if args.release else cargo('build')
+    os.execve(target, [target] + args.args, os.environ)
+
+cmd = sub.add_parser('run', help = 'run tinyvm')
+cmd.add_argument('-r', '--release', action = 'store_true', help = 'run release build')
+cmd.add_argument('args', nargs = '*')
+cmd.set_defaults(handler = do_run)
+
+def do_test(args: Namespace):
+    target = cargo('test', '-p', 'tinyvm', '--no-run', '--', *args.args)
+    os.execve(target, [target] + args.args, os.environ)
+
+cmd = sub.add_parser('test', help = 'run tests for tinyvm')
+cmd.add_argument('-r', '--release', action = 'store_true', help = 'run release build')
+cmd.add_argument('args', nargs = '*')
+cmd.set_defaults(handler = do_test)
+
+args = ps.parse_args()
+args.handler(args)
