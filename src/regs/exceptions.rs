@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 
 use crate::{
-    regs::SysReg,
     macros::{declare_friendly_enum, define_bit_field},
+    regs::SysReg,
 };
 
 const EC_UNCATEGORIZED: u64 = 0x00;
@@ -170,8 +170,20 @@ impl InstAbortISS {
 }
 
 impl DataAbortISS {
+    const SAS_SSE: u32 = 0x00e00000;
+    const ISV_AR_WNR: u32 = 0x01004040;
     const DFSC_TR_FAULT: u32 = 0b000100;
     const DFSC_FAULT_MASK: u32 = 0b111100;
+
+    #[inline(always)]
+    pub const fn sas_sse(self) -> u32 {
+        self.0.extract_bits(Self::SAS_SSE)
+    }
+
+    #[inline(always)]
+    pub const fn isv_ar_wnr(self) -> u32 {
+        self.0.extract_bits(Self::ISV_AR_WNR)
+    }
 
     #[inline(always)]
     pub const fn is_translation_fault(self) -> bool {

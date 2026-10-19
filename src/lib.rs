@@ -1,11 +1,10 @@
-#![feature(cstr_display)]
 #![feature(core_intrinsics)]
-#![feature(debug_closure_helpers)]
 #![feature(macro_metavar_expr)]
 #![feature(maybe_uninit_as_bytes)]
 #![feature(portable_simd)]
 #![feature(simd_ffi)]
 #![feature(slice_shift)]
+#![feature(uint_gather_scatter_bits)]
 #![allow(incomplete_features)]
 #![allow(internal_features)]
 
@@ -181,7 +180,6 @@ pub fn vm_exec() -> Unit {
     th_port=0x103
     security_config=0x0
     */
-
     /* construct the initial stack frame */
     FrameBuilder::new(frame, &image)
         .add("ls")

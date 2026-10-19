@@ -1,13 +1,15 @@
 use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Seek, SeekFrom};
 
 use crate::{
-    {disasm::disasm, paging::PAGE_SIZE, vm::Vm},
+    disasm::disasm,
     mem::Protection,
+    paging::PAGE_SIZE,
     utils::ptr::{IPA, Uintptr},
+    vm::Vm,
 };
 
 fn set_prot(addr: Uintptr, prot: Protection) -> IoResult<()> {
-    if unsafe { libc::mprotect(addr.as_ptr(), PAGE_SIZE, prot.bits() as i32) } != 0 {
+    if unsafe { libc::mprotect(addr.as_ptr(), PAGE_SIZE, prot.bits()) } != 0 {
         Err(IoError::last_os_error())
     } else {
         Ok(())

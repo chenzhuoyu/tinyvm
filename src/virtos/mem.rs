@@ -18,7 +18,7 @@ use crate::{
         ptr::{IPA, Uintptr},
         size::align_to_page,
     },
-    virtos::mmio::{MmioHandler, MmioKind, MmioRequest, MmioResponse},
+    virtos::mmio::{MmioContext, MmioHandler, MmioKind},
     vm::Vm,
 };
 
@@ -335,16 +335,15 @@ impl VmMap {
 
 impl VmMap {
     #[inline]
-    fn find_mmio(&mut self, pc: Uintptr, req: &MmioRequest) -> Option<Arc<dyn MmioHandler>> {
+    fn find_mmio(&mut self, pc: Uintptr, addr: Uintptr) -> Option<Arc<dyn MmioHandler>> {
         let (.., region) = self
             .maps
-            .range_mut(..=req.addr)
+            .range_mut(..=addr)
             .next_back()
-            .filter(|(.., r)| r.end() > req.addr)?;
+            .filter(|(.., r)| r.end() > addr)?;
         let VmKind::Mmio(mmio) = &region.kind else {
             panic!(
                 "unexpected MMIO fault\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
-                addr = req.addr,
                 insn = disasm(pc)
             );
         };
@@ -412,7 +411,7 @@ impl VmMap {
     ) {
         assert!(
             addr.is_aligned_to(PAGE_SIZE) && phys.is_aligned_to(PAGE_SIZE),
-            "unaligned map addresses: {addr:p}"
+            "unaligned map addresses: {addr:p}:{phys:p}"
         );
         VMM.lock().map_range(
             VmKind::Mmio(Arc::new(mmio)),
@@ -460,9 +459,10 @@ impl VmMap {
 
 impl VmMap {
     #[inline]
-    pub fn handle_mmio(pc: Uintptr, req: &mut MmioRequest) -> Option<MmioResponse> {
-        let mmio = VMM.lock().find_mmio(pc, req)?;
-        Some(mmio.handle(pc, req))
+    pub fn handle_mmio(mcx: MmioContext<'_>) -> bool {
+        VMM.lock()
+            .find_mmio(mcx.pc, mcx.addr)
+            .is_some_and(|mmio| mmio.handle(mcx))
     }
 
     #[inline]

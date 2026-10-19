@@ -14,7 +14,7 @@ use crate::{
     virtos::{
         IRQ_STUBS, STACK_TOP,
         mem::VmMap,
-        mmio::{MmioKind, MmioRequest, MmioResponse},
+        mmio::{MmioContext, MmioKind},
     },
 };
 
@@ -144,7 +144,7 @@ impl Cpu {
 }
 
 impl Cpu {
-    fn handle_exc(&mut self, exc: VmException) {
+    fn handle_exc(&self, exc: VmException) {
         match Exception::from(exc.syndrome.EC()) {
             Exception::AA64_HVC => {
                 let esr = self.read_sys_reg(SysReg::ESR_EL1);
@@ -186,7 +186,7 @@ impl Cpu {
         }
     }
 
-    fn handle_user_exc(&mut self, esr: Syndrome, elr: Uintptr) {
+    fn handle_user_exc(&self, esr: Syndrome, elr: Uintptr) {
         match Exception::from(esr.EC()) {
             Exception::AA64_SVC => {
                 let mut syscall = Syscall::read(self);
@@ -217,103 +217,43 @@ impl Cpu {
         }
     }
 
-    fn handle_inst_abort(&mut self, pc: Uintptr, iss: InstAbortISS, addr: Uintptr) {
-        if !iss.is_translation_fault() {
-            panic!(
-                "segmentation fault from instruction fetching: {self:#?}\nAddress:\n  \
-                 {addr:p}\nInstruction:\n  {insn}",
-                insn = disasm(pc)
-            );
-        }
-        let mut req = MmioRequest {
-            addr,
-            data: 0,
-            size: 4,
-            kind: MmioKind::Execution,
-        };
-        let Some(resp) = VmMap::handle_mmio(pc, &mut req) else {
-            panic!(
-                "unhandled page fault from instruction fetching: {self:#?}\nAddress:\n  \
-                 {addr:p}\nInstruction:\n  {insn}",
-                insn = disasm(pc)
-            );
-        };
-        assert_eq!(
-            resp,
-            MmioResponse::Retry,
-            "invalid handling of page fault from instruction fetching"
+    fn handle_inst_abort(&self, pc: Uintptr, iss: InstAbortISS, addr: Uintptr) {
+        assert!(
+            iss.is_translation_fault(),
+            "segmentation fault from instruction fetching\nAddress:\n  {addr:p}\nInstruction:\n  \
+             {insn}\n{self:#?}",
+            insn = disasm(pc)
+        );
+        assert!(
+            VmMap::handle_mmio(MmioContext::new(self, None, pc, addr)),
+            "unhandled page fault from instruction fetching\nAddress:\n  \
+             {addr:p}\nInstruction:\n  {insn}\n{self:#?}",
+            insn = disasm(pc)
         );
     }
 
-    fn handle_data_abort(&mut self, pc: Uintptr, iss: DataAbortISS, addr: Uintptr) {
+    fn handle_data_abort(&self, pc: Uintptr, iss: DataAbortISS, addr: Uintptr) {
         if iss.CM() == 1 {
             self.write_reg(Reg::PC, pc.as_u64() + 4);
             return;
         }
-        if iss.S1PTW() == 1 {
-            panic!("page table fault on state 1 translation lookup");
-        }
-        if !iss.is_translation_fault() {
-            panic!(
-                "segmentation fault: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
-                insn = disasm(pc)
-            );
-        }
-        let mut req = MmioRequest {
-            addr,
-            data: 0,
-            size: 0,
-            kind: MmioKind::Read,
-        };
-        if iss.WnR() == 1 {
-            req.kind = MmioKind::Write;
-        }
-        if iss.ISV() == 1 {
-            if iss.AR() == 1 {
-                if iss.WnR() == 1 {
-                    req.kind = MmioKind::ReadAtomic;
-                } else {
-                    req.kind = MmioKind::WriteAtomic;
-                }
-            }
-            if iss.AR() == 0 && iss.WnR() == 1 {
-                req.data = self.read_reg(Reg::from(iss.SRT()));
-            }
-            req.size = 1 << iss.SAS();
-        }
-        let Some(resp) = VmMap::handle_mmio(pc, &mut req) else {
-            panic!(
-                "unhandled page fault: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
-                insn = disasm(pc)
-            );
-        };
-        if resp == MmioResponse::Retry {
-            return;
-        }
         assert!(
-            iss.ISV() != 0,
-            "MMIO cannot make more progress without valid ISV"
+            iss.S1PTW() == 0,
+            "page table fault on state 1 translation lookup"
         );
-        if iss.WnR() == 0 {
-            match (iss.SAS(), iss.SSE()) {
-                (0b00, 0b0) => req.data &= u8::MAX as u64,
-                (0b01, 0b0) => req.data &= u16::MAX as u64,
-                (0b10, 0b0) => req.data &= u32::MAX as u64,
-                (0b00, 0b1) => req.data = req.data as i8 as u64,
-                (0b01, 0b1) => req.data = req.data as i16 as u64,
-                (0b10, 0b1) => req.data = req.data as i32 as u64,
-                (0b11, ..) => {}
-                _ => unreachable!(),
-            };
-            if iss.SF() == 0 {
-                req.data &= u32::MAX as u64;
-            }
-            self.write_reg(Reg::from(iss.SRT()), req.data);
-        }
-        self.write_reg(Reg::PC, pc.as_u64() + 4);
+        assert!(
+            iss.is_translation_fault(),
+            "segmentation fault\nAddress:\n  {addr:p}\nInstruction:\n  {insn}\n{self:#?}",
+            insn = disasm(pc)
+        );
+        assert!(
+            VmMap::handle_mmio(MmioContext::new(self, Some(iss), pc, addr)),
+            "unhandled page fault\nAddress:\n  {addr:p}\nInstruction:\n  {insn}\n{self:#?}",
+            insn = disasm(pc)
+        );
     }
 
-    fn handle_sysreg_trap(&mut self, iss: SysRegTrapISS) {
+    fn handle_sysreg_trap(&self, iss: SysRegTrapISS) {
         macro_rules! wrong_sysreg {
             ($kind:literal) => {
                 panic!(
@@ -367,17 +307,17 @@ impl Cpu {
         }
     }
 
-    fn handle_user_inst_abort(&mut self, pc: Uintptr, iss: InstAbortISS, addr: Uintptr) {
+    fn handle_user_inst_abort(&self, pc: Uintptr, iss: InstAbortISS, addr: Uintptr) {
         assert!(
             iss.is_translation_fault(),
-            "segmentation fault at EL0 from instruction fetching: {self:#?}\nAddress:\n  \
-             {addr:p}\nInstruction:\n  {insn}",
+            "segmentation fault at EL0 from instruction fetching\nAddress:\n  \
+             {addr:p}\nInstruction:\n  {insn}\n{self:#?}",
             insn = disasm(pc)
         );
         if !VmMap::handle_page_fault(addr, MmioKind::Execution) {
             panic!(
-                "bus fault at EL0 from instruction fetching: {self:#?}\nAddress:\n  \
-                 {addr:p}\nInstruction:\n  {insn}",
+                "bus fault at EL0 from instruction fetching\nAddress:\n  \
+                 {addr:p}\nInstruction:\n  {insn}\n{self:#?}",
                 insn = disasm(pc)
             );
         } else {
@@ -385,10 +325,10 @@ impl Cpu {
         }
     }
 
-    fn handle_user_data_abort(&mut self, pc: Uintptr, iss: DataAbortISS, addr: Uintptr) {
+    fn handle_user_data_abort(&self, pc: Uintptr, iss: DataAbortISS, addr: Uintptr) {
         assert!(
             iss.is_translation_fault(),
-            "segmentation fault at EL0: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
+            "segmentation fault at EL0\nAddress:\n  {addr:p}\nInstruction:\n  {insn}\n{self:#?}",
             insn = disasm(pc)
         );
         let kind = {
@@ -400,7 +340,7 @@ impl Cpu {
         };
         if !VmMap::handle_page_fault(addr, kind) {
             panic!(
-                "bus fault at EL0: {self:#?}\nAddress:\n  {addr:p}\nInstruction:\n  {insn}",
+                "bus fault at EL0\nAddress:\n  {addr:p}\nInstruction:\n  {insn}\n{self:#?}",
                 insn = disasm(pc)
             );
         } else {
@@ -410,7 +350,7 @@ impl Cpu {
 }
 
 impl Cpu {
-    pub fn run(&mut self) {
+    pub fn run(&self) {
         loop {
             let exit = {
                 hv_call!(hv_vcpu_run(self.vcpu));

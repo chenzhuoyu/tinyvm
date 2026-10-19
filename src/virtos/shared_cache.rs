@@ -14,27 +14,25 @@ use parking_lot::{Mutex, RwLock};
 use smallvec::SmallVec;
 
 use crate::{
-    {
-        cpu::Cpu,
-        disasm::disasm,
-        paging::PAGE_SIZE,
-        syscall::bsd::{shared_file_np, shared_mapping_np},
-        virtos::{
-            faults,
-            mem::VmMap,
-            mmio::{MmioHandler, MmioRequest, MmioResponse},
-            pac::SigningKey,
-        },
-        vm::Vm,
-    },
+    cpu::Cpu,
+    disasm::disasm,
     macros::define_bit_field,
     mem::Protection,
+    paging::PAGE_SIZE,
+    syscall::bsd::{shared_file_np, shared_mapping_np},
     utils::{
         io::MemoryIo,
         path::is_real_file,
         ptr::Uintptr,
         size::{align_to_page, is_page_aligned},
     },
+    virtos::{
+        faults,
+        mem::VmMap,
+        mmio::{MmioContext, MmioHandler},
+        pac::SigningKey,
+    },
+    vm::Vm,
 };
 
 const VM_PROT_ZF: i32 = 0x10;
@@ -85,18 +83,18 @@ impl SliderPage {
 }
 
 impl SliderPage {
-    fn do_load(&self, pc: Uintptr) {
+    fn load(&self, mcx: MmioContext<'_>) {
         if !self.flag.load(Ordering::Acquire) {
-            let mut req = MmioRequest::read_unsized(self.addr);
-            assert_eq!(VmMap::handle_mmio(pc, &mut req), Some(MmioResponse::Retry));
-            self.flag.store(true, Ordering::Release);
+            let _m = self.lock.lock();
+            self.do_load(mcx);
         }
     }
 
-    fn load(&self, pc: Uintptr) {
+    fn do_load(&self, mut mcx: MmioContext<'_>) {
         if !self.flag.load(Ordering::Acquire) {
-            let _m = self.lock.lock();
-            self.do_load(pc);
+            mcx.addr = self.addr;
+            assert!(VmMap::handle_mmio(mcx));
+            self.flag.store(true, Ordering::Release);
         }
     }
 }
@@ -193,9 +191,9 @@ impl CacheSlider {
         );
     }
 
-    fn slide(&self, pc: Uintptr, page: Uintptr, base: Uintptr) {
+    fn slide(&self, mcx: MmioContext<'_>, page: Uintptr, base: Uintptr) {
         if !self.flag.load(Ordering::Acquire) {
-            self.page.iter().for_each(|p| p.load(pc));
+            self.page.iter().for_each(|p| p.load(mcx));
             self.flag.store(true, Ordering::Release);
         }
         match self.data.read::<u32>() {
@@ -219,29 +217,29 @@ struct Mapping {
 
 impl Mapping {
     fn sys_protect(addr: Uintptr, size: usize, prot: Protection) {
-        if unsafe { libc::mprotect(addr.as_ptr(), size, prot.bits() as i32) } != 0 {
+        if unsafe { libc::mprotect(addr.as_ptr(), size, prot.bits()) } != 0 {
             panic!("cannot protect mappings: {}", IoError::last_os_error());
         }
     }
 }
 
 impl MmioHandler for Mapping {
-    fn handle(&self, pc: Uintptr, req: &mut MmioRequest) -> MmioResponse {
+    fn handle(&self, mcx: MmioContext<'_>) -> bool {
         assert!(
-            req.addr < self.base + self.entry.sms_size,
+            mcx.addr < self.base + self.entry.sms_size,
             "MMIO address {addr:p} landed in gaps between regions \
              {base:p}-{next:p}\nInstruction:\n  {insn}",
-            addr = req.addr,
+            addr = mcx.addr,
             base = self.base,
             next = self.base + self.entry.sms_size,
-            insn = disasm(pc),
+            insn = disasm(mcx.pc),
         );
         if self.entry.sms_max_prot & VM_PROT_ZF != 0 {
             unimplemented!("VM_PROT_ZF for shared cache mappings");
         }
         let prot = {
             if self.slider.is_none() {
-                VmMap::lookup(req.addr)
+                VmMap::lookup(mcx.addr)
             } else {
                 Protection::RW
             }
@@ -256,13 +254,13 @@ impl MmioHandler for Mapping {
         //     self.entry.sms_file_offset as usize,
         // );
         if let Some(slider) = self.slider.as_ref() {
-            let page = req.addr.align_down(PAGE_SIZE);
+            let page = mcx.addr.align_down(PAGE_SIZE);
             let prot = VmMap::lookup(page);
-            slider.slide(pc, page, self.base);
+            slider.slide(mcx, page, self.base);
             Self::sys_protect(page, PAGE_SIZE, prot & !Protection::EXEC);
             Vm::protect(page.into(), PAGE_SIZE, prot);
         }
-        MmioResponse::Retry
+        true
     }
 }
 

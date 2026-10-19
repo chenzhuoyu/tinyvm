@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::Context;
+use object::macho::{CpuType, VmProt};
 
 use crate::{Maybe, utils::ptr::Uintptr};
 
@@ -19,7 +20,6 @@ macro_rules! impl_as_usize {
     ($($ty:ty),* $(,)?) => {
         $(
             impl AsUsize for $ty {
-                #[allow(dead_code)]
                 #[inline(always)]
                 fn as_usize(self) -> usize {
                     self as usize
@@ -42,19 +42,33 @@ impl_as_usize! {
     usize,
 }
 
+impl AsUsize for VmProt {
+    #[inline(always)]
+    fn as_usize(self) -> usize {
+        self.0 as usize
+    }
+}
+
+impl AsUsize for CpuType {
+    #[inline(always)]
+    fn as_usize(self) -> usize {
+        self.0 as usize
+    }
+}
+
 pub trait ValueExt<T: AsUsize> {
     fn value(self) -> T;
     fn usize(self) -> usize;
 }
 
 macro_rules! impl_get_int {
-    ($( $endian:ty { $( $ty:ty ),* $(,)? } )*) => {
+    ($( $endian:ty { $( $ty:ident <$val_ty:ty> ),* $(,)? } ),* $(,)?) => {
         paste::paste! {
             $($(
-                impl ValueExt<$ty> for object::[< $ty:upper >]<object::$endian> {
+                impl ValueExt<$val_ty> for object::$ty<object::$endian, $val_ty> {
                     #[allow(dead_code)]
                     #[inline(always)]
-                    fn value(self) -> $ty {
+                    fn value(self) -> $val_ty {
                         self.get(object::$endian)
                     }
 
@@ -70,8 +84,20 @@ macro_rules! impl_get_int {
 }
 
 impl_get_int! {
-    BigEndian    { u16, u32, u64 }
-    LittleEndian { u16, u32, u64 }
+    BigEndian {
+        U16<u16>,
+        U32<u32>,
+        U32<VmProt>,
+        U32<CpuType>,
+        U64<u64>,
+    },
+    LittleEndian {
+        U16<u16>,
+        U32<u32>,
+        U32<VmProt>,
+        U32<CpuType>,
+        U64<u64>,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]

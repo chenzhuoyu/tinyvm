@@ -14,7 +14,7 @@ use object::{
     LittleEndian,
     macho::{
         CPU_TYPE_ARM64, CPU_TYPE_X86_64, FAT_CIGAM, FAT_CIGAM_64, FatArch32, FatArch64,
-        MH_CIGAM_64, MH_MAGIC, MH_MAGIC_64, MachHeader64,
+        MH_CIGAM_64, MH_MAGIC, MH_MAGIC_64, MachHeader64, VmProt,
     },
     read::macho::{FatArch, LoadCommandVariant, MachHeader, Segment},
 };
@@ -39,7 +39,6 @@ pub struct Image {
 static DYLD: OnceLock<Image> = OnceLock::new();
 
 impl Image {
-    const CPU_TYPE: u32 = CPU_TYPE_ARM64;
     const DYLD_PATH: &str = "/usr/lib/dyld";
 }
 
@@ -82,7 +81,7 @@ impl Image {
                     (arch.cputype(), arch.offset() as usize)
                 }
             };
-            if cpu == Self::CPU_TYPE {
+            if cpu == CPU_TYPE_ARM64 {
                 return Ok(offset);
             }
         }
@@ -142,7 +141,7 @@ impl Image {
                         segments.push(seg);
                     } else {
                         assert_eq!(seg.vmaddr.value(), 0, "__PAGEZERO not at addr 0");
-                        assert_eq!(seg.initprot.value(), 0, "__PAGEZERO is not guared");
+                        assert_eq!(seg.initprot.value(), VmProt(0), "__PAGEZERO is not guared");
                     }
                 }
                 LoadCommandVariant::EntryPoint(cmd) => {
@@ -201,8 +200,8 @@ impl Image {
             VmMap::mmap(
                 Uintptr::from(seg.vmaddr.usize() + slide),
                 seg.vmsize.usize(),
-                Protection::from_bits_retain(seg.initprot.value() as i32),
-                Protection::from_bits_retain(seg.maxprot.value() as i32),
+                Protection::from_bits_retain(seg.initprot.value().0 as i32),
+                Protection::from_bits_retain(seg.maxprot.value().0 as i32),
                 false,
             );
         }
