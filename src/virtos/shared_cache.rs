@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    fs::File,
     io::{Error as IoError, Result as IoResult},
     num::NonZeroU64,
     os::fd::{FromRawFd, OwnedFd},
@@ -21,16 +20,16 @@ use crate::{
     paging::PAGE_SIZE,
     syscall::bsd::{shared_file_np, shared_mapping_np},
     utils::{
-        io::MemoryIo,
+        io::{MemoryIo, RandomRead},
         path::is_real_file,
         ptr::Uintptr,
         size::{align_to_page, is_page_aligned},
     },
     virtos::{
-        faults,
         mem::VmMap,
         mmio::{MmioContext, MmioHandler},
         pac::SigningKey,
+        sys::sys_protect,
     },
     vm::Vm,
 };
@@ -104,13 +103,13 @@ struct CacheSlider {
     size: usize,
     offs: usize,
     data: Uintptr,
-    page: SmallVec<[Arc<SliderPage>; 1]>,
+    page: SmallVec<[Arc<SliderPage>; 2]>,
     flag: AtomicBool,
 }
 
 impl CacheSlider {
     #[inline]
-    fn new(data: Uintptr, size: usize, slide: usize, page: SmallVec<[Arc<SliderPage>; 1]>) -> Self {
+    fn new(data: Uintptr, size: usize, slide: usize, page: SmallVec<[Arc<SliderPage>; 2]>) -> Self {
         Self {
             size,
             data,
@@ -170,8 +169,7 @@ impl CacheSlider {
                     item.diversity() as u16,
                 ));
             } else {
-                let high8 = item.high8() << 56;
-                slot.write::<u64>(high8 | addr);
+                slot.write::<u64>((item.high8() << 56) | addr);
             }
 
             /* move to the next slot */
@@ -210,15 +208,24 @@ impl CacheSlider {
 #[derive(Debug)]
 struct Mapping {
     base: Uintptr,
-    file: Arc<Mutex<File>>,
+    file: Arc<OwnedFd>,
     entry: shared_mapping_np,
     slider: Option<CacheSlider>,
 }
 
 impl Mapping {
-    fn sys_protect(addr: Uintptr, size: usize, prot: Protection) {
-        if unsafe { libc::mprotect(addr.as_ptr(), size, prot.bits()) } != 0 {
-            panic!("cannot protect mappings: {}", IoError::last_os_error());
+    #[inline]
+    const fn new(
+        base: Uintptr,
+        file: Arc<OwnedFd>,
+        entry: shared_mapping_np,
+        slider: Option<CacheSlider>,
+    ) -> Self {
+        Self {
+            base,
+            file,
+            entry,
+            slider,
         }
     }
 }
@@ -234,32 +241,27 @@ impl MmioHandler for Mapping {
             next = self.base + self.entry.sms_size,
             insn = disasm(mcx.pc),
         );
+        let (addr, offs, prot) = (
+            mcx.addr.align_down(PAGE_SIZE),
+            (self.entry.sms_file_offset as usize) + ((mcx.addr - self.base) & !(PAGE_SIZE - 1)),
+            VmMap::lookup(mcx.addr),
+        );
         if self.entry.sms_max_prot & VM_PROT_ZF != 0 {
             unimplemented!("VM_PROT_ZF for shared cache mappings");
         }
-        let prot = {
-            if self.slider.is_none() {
-                VmMap::lookup(mcx.addr)
-            } else {
-                Protection::RW
-            }
-        };
-        todo!();
-        // faults::fetch_page(
-        //     pc,
-        //     req.addr,
-        //     self.base,
-        //     prot,
-        //     &mut *self.file.lock(),
-        //     self.entry.sms_file_offset as usize,
-        // );
-        if let Some(slider) = self.slider.as_ref() {
-            let page = mcx.addr.align_down(PAGE_SIZE);
-            let prot = VmMap::lookup(page);
-            slider.slide(mcx, page, self.base);
-            Self::sys_protect(page, PAGE_SIZE, prot & !Protection::EXEC);
-            Vm::protect(page.into(), PAGE_SIZE, prot);
+        if let Err(err) = sys_protect(addr, PAGE_SIZE, Protection::WRITE) {
+            panic!("cannot enable shared cache page {addr:p}: {err}");
         }
+        if let Err(err) = self.file.read_at(addr, PAGE_SIZE, offs) {
+            panic!("cannot read shared cache page {addr:p}: {err}");
+        }
+        if let Some(slider) = self.slider.as_ref() {
+            slider.slide(mcx, addr, self.base);
+        }
+        if let Err(err) = sys_protect(addr, PAGE_SIZE, prot & !Protection::EXEC) {
+            panic!("cannot set protection for shared cache page {addr:p}: {err}");
+        }
+        Vm::map(addr, addr.into(), PAGE_SIZE, prot);
         true
     }
 }
@@ -299,6 +301,7 @@ fn mkslice<T>(data: *const T, len: u32) -> &'static [T] {
     unsafe { std::slice::from_raw_parts(data, len as usize) }
 }
 
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn shared_region_check_np(_cpu: &Cpu, addr: *mut u64) -> IoResult<()> {
     if addr.is_null() {
         SHARED_REGION.write().remove();
@@ -307,7 +310,7 @@ pub fn shared_region_check_np(_cpu: &Cpu, addr: *mut u64) -> IoResult<()> {
         SHARED_REGION.write().seal = true;
         Ok(())
     } else if let Some(base) = NonZeroU64::new(SHARED_REGION.read().addr.as_u64()) {
-        unsafe { *addr = base.get() };
+        unsafe { *addr = base.get() }
         Ok(())
     } else {
         Err(IoError::from_raw_os_error(libc::EINVAL))
@@ -395,8 +398,7 @@ pub fn shared_region_map_and_slide_2_np(
         /* add the file if needed */
         let file = unsafe {
             if fd != -1 {
-                let fd = OwnedFd::from_raw_fd(libc::dup(fd));
-                Some(Arc::new(Mutex::new(File::from(fd))))
+                Some(Arc::new(OwnedFd::from_raw_fd(libc::dup(fd))))
             } else {
                 None
             }
@@ -418,7 +420,7 @@ pub fn shared_region_map_and_slide_2_np(
                     unsafe {
                         let src = item.sms_file_offset as *const u8;
                         std::ptr::copy_nonoverlapping(src, addr.as_ptr(), size);
-                        Mapping::sys_protect(addr, size, prot & !Protection::EXEC);
+                        sys_protect(addr, size, prot & !Protection::EXEC)?;
                         VmMap::mmap(addr, size, prot, max_prot, false);
                         continue;
                     }
@@ -460,20 +462,15 @@ pub fn shared_region_map_and_slide_2_np(
             };
 
             /* register the mapping into VM map */
-            todo!();
-            // VmMap::map(
-            //     Mapping {
-            //         base: addr,
-            //         file,
-            //         entry: item,
-            //         slider,
-            //     },
-            //     addr,
-            //     size,
-            //     prot,
-            //     max_prot,
-            //     true,
-            // );
+            VmMap::iomap(
+                Mapping::new(addr, file, item, slider),
+                addr,
+                addr.into(),
+                size,
+                prot,
+                max_prot,
+                true,
+            );
         }
     }
 

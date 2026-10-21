@@ -140,7 +140,7 @@ impl VmRegion {
 impl Drop for VmRegion {
     #[inline]
     fn drop(&mut self) {
-        if self.populated || self.kind.is_regular() {
+        if self.kind.is_regular() {
             Vm::unmap(self.base.phys, self.size);
         }
     }
@@ -367,12 +367,13 @@ impl VmMap {
                 _ => unreachable!(),
             }
         };
-        region.prot.contains(mask) && {
-            let phys = region.base.phys + (addr - region.base.virt);
-            self.page.set(addr, phys, region.prot, region.max_prot);
-            region.populated = true;
-            true
+        if !region.prot.contains(mask) {
+            return false;
         }
+        let phys = region.base.phys + (addr - region.base.virt);
+        self.page.set(addr, phys, region.prot, region.max_prot);
+        region.populated = true;
+        true
     }
 }
 
@@ -429,8 +430,7 @@ impl VmMap {
             addr.is_aligned_to(PAGE_SIZE),
             "unaligned unmap address: {addr:p}"
         );
-        let size = align_to_page(size);
-        VMM.lock().unmap_range(addr, size);
+        VMM.lock().unmap_range(addr, align_to_page(size));
     }
 
     #[inline]
@@ -445,8 +445,8 @@ impl VmMap {
             addr.is_aligned_to(PAGE_SIZE),
             "unaligned protect address: {addr:p}"
         );
-        let size = align_to_page(size);
-        VMM.lock().protect_range(cpu, addr, size, prot, set_max)
+        VMM.lock()
+            .protect_range(cpu, addr, align_to_page(size), prot, set_max)
     }
 }
 
@@ -460,9 +460,10 @@ impl VmMap {
 impl VmMap {
     #[inline]
     pub fn handle_mmio(mcx: MmioContext<'_>) -> bool {
-        VMM.lock()
-            .find_mmio(mcx.pc, mcx.addr)
-            .is_some_and(|mmio| mmio.handle(mcx))
+        match { VMM.lock().find_mmio(mcx.pc, mcx.addr) } {
+            Some(mmio) => mmio.handle(mcx),
+            None => false,
+        }
     }
 
     #[inline]

@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 use crate::{
     cpu::Cpu,
+    disasm::disasm,
     regs::{DataAbortISS, Reg},
     utils::ptr::Uintptr,
 };
@@ -22,18 +23,18 @@ pub struct MmioRequest {
     pub kind: MmioKind,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct MmioContext<'p> {
+    cpu: &'p Cpu,
     iss: Option<DataAbortISS>,
     pub pc: Uintptr,
-    pub cpu: &'p Cpu,
     pub addr: Uintptr,
 }
 
 impl<'p> MmioContext<'p> {
     #[inline]
     pub fn new(cpu: &'p Cpu, iss: Option<DataAbortISS>, pc: Uintptr, addr: Uintptr) -> Self {
-        Self { iss, pc, cpu, addr }
+        Self { cpu, iss, pc, addr }
     }
 }
 
@@ -105,6 +106,17 @@ impl MmioContext<'_> {
         } else {
             panic!("MMIO cannot make more progress without valid ISV and WnR");
         }
+    }
+}
+
+impl Debug for MmioContext<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MmioContext")
+            .field("cpu", &self.cpu)
+            .field("iss", &self.iss)
+            .field_with("pc", |f| write!(f, "{}", disasm(self.pc)))
+            .field("addr", &self.addr)
+            .finish()
     }
 }
 

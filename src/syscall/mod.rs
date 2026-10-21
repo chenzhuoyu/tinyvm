@@ -9,10 +9,8 @@ use mach::MachTrap;
 use machdep::MachDep;
 
 use crate::{
-    {
-        cpu::Cpu,
-        regs::{PSTATE_C, PSTATE_N, PSTATE_NZCV, PSTATE_V, PSTATE_Z, Reg, SysReg},
-    },
+    cpu::Cpu,
+    regs::{PSTATE_C, PSTATE_N, PSTATE_NZCV, PSTATE_V, PSTATE_Z, Reg, SysReg},
     utils::ptr::Uintptr,
 };
 

@@ -1,10 +1,4 @@
-use std::{
-    fs::File,
-    io::{Error as IoError, Result as IoResult},
-    os::fd::{FromRawFd, OwnedFd},
-};
-
-use parking_lot::Mutex;
+use std::io::{Error as IoError, Result as IoResult};
 
 use crate::{
     cpu::Cpu,
@@ -14,43 +8,54 @@ use crate::{
     virtos::{
         mem::VmMap,
         mmio::{MmioContext, MmioHandler},
+        sys::{sys_map, sys_protect, sys_unmap},
     },
+    vm::Vm,
 };
+
+#[repr(C, align(16384))]
+#[derive(Debug, Clone, Copy)]
+struct Page([u8; PAGE_SIZE]);
 
 struct FileMap {
     size: usize,
-    host: Uintptr,
-    guest: Uintptr,
-    write_back: bool,
-}
-
-impl MmioHandler for FileMap {
-    fn handle(&self, mcx: MmioContext<'_>) -> bool {
-        todo!()
-    }
-}
-
-fn sys_map(
     addr: Uintptr,
-    size: usize,
+    phys: Uintptr,
     prot: Protection,
-    flags: i32,
-    fd: i32,
-    offset: i64,
-) -> IoResult<Uintptr> {
-    unsafe {
-        match libc::mmap(addr.as_ptr(), size, prot.bits(), flags, fd, offset) {
-            libc::MAP_FAILED => Err(IoError::last_os_error()),
-            mem => Ok(Uintptr::from(mem)),
+}
+
+impl FileMap {
+    #[inline]
+    const fn new(size: usize, addr: Uintptr, phys: Uintptr, prot: Protection) -> Self {
+        Self {
+            size,
+            addr,
+            phys,
+            prot,
         }
     }
 }
 
-fn sys_protect(addr: Uintptr, prot: Protection) -> IoResult<()> {
-    if unsafe { libc::mprotect(addr.as_ptr(), PAGE_SIZE, prot.bits()) } != 0 {
-        Err(IoError::last_os_error())
-    } else {
-        Ok(())
+impl Drop for FileMap {
+    fn drop(&mut self) {
+        if self.prot.contains(Protection::WRITE) {
+            unimplemented!("file map write back");
+        }
+        sys_unmap(self.addr, self.size).ok();
+        Vm::unmap(self.phys.into(), self.size);
+        Vm::dealloc(self.phys, self.size);
+    }
+}
+
+impl MmioHandler for FileMap {
+    fn handle(&self, mcx: MmioContext<'_>) -> bool {
+        // FIXME: may need some sort of swap-out mechanism to save memory.
+        let offs = mcx.addr - self.addr;
+        let addr = self.addr + (offs & !(PAGE_SIZE - 1));
+        let phys = self.phys + (offs & !(PAGE_SIZE - 1));
+        *phys.as_mut::<Page>() = *addr.as_ref();
+        Vm::map(phys, phys.into(), PAGE_SIZE, self.prot);
+        true
     }
 }
 
@@ -74,31 +79,16 @@ fn map_from_file(
     fd: i32,
     offset: libc::off_t,
 ) -> IoResult<Uintptr> {
-    let addr = unsafe {
-        Uintptr::from(libc::mmap(
-            addr.as_ptr(),
-            size,
-            prot.bits(),
-            flags,
-            fd,
-            offset,
-        ))
-    };
-    if addr.as_ptr() == libc::MAP_FAILED {
-        return Err(IoError::last_os_error());
+    // TODO: implement file map write back
+    if flags & libc::MAP_SHARED != 0 && prot.contains(Protection::WRITE) {
+        unimplemented!("file map write back");
     }
-    eprintln!("addr={addr:p} size={size} flags=0x{flags:x} prot={prot:?} fd={fd} offset={offset}");
-    eprintln!("  data = {:?}", addr.read::<[u8; 32]>());
-    todo!();
-    // VmMap::iomap(
-    //     FileMap::new(addr, fd, flags, offset),
-    //     addr,
-    //     size,
-    //     prot,
-    //     Protection::all(),
-    //     false,
-    // );
-    // Ok(addr)
+    let addr = sys_map(addr, size, prot & !Protection::EXEC, flags, fd, offset)?;
+    let phys = Vm::alloc(size);
+    let mmio = FileMap::new(size, addr, phys, prot);
+    let max_prot = Protection::all();
+    VmMap::iomap(mmio, addr, phys.into(), size, prot, max_prot, false);
+    Ok(addr)
 }
 
 pub fn msync(_cpu: &Cpu, addr: Uintptr, len: usize, flags: i32) -> IoResult<()> {
@@ -106,21 +96,15 @@ pub fn msync(_cpu: &Cpu, addr: Uintptr, len: usize, flags: i32) -> IoResult<()> 
 }
 
 pub fn munmap(cpu: &Cpu, addr: Uintptr, len: usize) -> IoResult<()> {
+    sys_unmap(addr, len)?;
     VmMap::unmap(addr, len);
     cpu.flush_tlb(addr, len.div_ceil(PAGE_SIZE));
-
-    /* actually remove from host address space */
-    if unsafe { libc::munmap(addr.as_ptr(), len) } != 0 {
-        Err(IoError::last_os_error())
-    } else {
-        Ok(())
-    }
+    Ok(())
 }
 
 pub fn mprotect(cpu: &Cpu, addr: Uintptr, len: usize, raw_prot: i32) -> IoResult<()> {
     if let Some(prot) = Protection::from_bits(raw_prot) {
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        sys_protect(addr, prot & !Protection::EXEC)?;
+        sys_protect(addr, len, prot & !Protection::EXEC)?;
         VmMap::protect(cpu, addr, len, prot, false)?;
         Ok(())
     } else {

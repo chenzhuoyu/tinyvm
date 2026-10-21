@@ -6,7 +6,6 @@ version = "0.1.0"
 [dependencies]
 anyhow             = "1.0"
 bitflags           = "2.13"
-clap               = { version = "4.6", features = ["derive"] }
 disarm64           = "0.2"
 disarm64_defn      = "0.2"
 fn-ptr             = "0.9"

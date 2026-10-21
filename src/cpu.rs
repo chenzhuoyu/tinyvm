@@ -154,12 +154,12 @@ impl Cpu {
             Exception::INST_ABORT => {
                 let pc = self.read_reg(Reg::PC);
                 let iss = InstAbortISS(exc.syndrome.ISS() as u32);
-                self.handle_inst_abort(pc.into(), iss, exc.phys_addr);
+                self.handle_inst_abort(pc.into(), iss, exc.virt_addr);
             }
             Exception::DATA_ABORT => {
                 let pc = self.read_reg(Reg::PC);
                 let iss = DataAbortISS(exc.syndrome.ISS() as u32);
-                self.handle_data_abort(pc.into(), iss, exc.phys_addr);
+                self.handle_data_abort(pc.into(), iss, exc.virt_addr);
             }
             Exception::SOFTWARE_STEP => {
                 let pc = Uintptr::from(self.read_reg(Reg::PC));

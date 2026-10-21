@@ -1,22 +1,18 @@
-#![allow(clippy::not_unsafe_ptr_arg_deref)]
-
 pub mod bsd_mman;
 pub mod commpage;
-pub mod faults;
 pub mod mach_msg;
 pub mod mach_vm;
 pub mod mem;
 pub mod mmio;
 pub mod pac;
 pub mod shared_cache;
+pub mod sys;
 pub mod task;
 pub mod tlb;
 
-use std::io::Error as IoError;
-
 use crate::{
-    paging::PAGE_SIZE,
     mem::Protection,
+    paging::PAGE_SIZE,
     utils::{ptr::Uintptr, size::align_to_page},
 };
 
@@ -41,21 +37,17 @@ fn virtos_code() -> &'static [u8] {
 }
 
 fn map_fixed(addr: Uintptr, size: usize) {
-    let ret = unsafe {
-        libc::mmap(
-            addr.as_ptr(),
-            size,
-            libc::PROT_READ | libc::PROT_WRITE,
-            libc::MAP_ANON | libc::MAP_PRIVATE | libc::MAP_FIXED,
-            -1,
-            0,
-        )
-    };
-    assert!(
-        ret != libc::MAP_FAILED,
-        "cannot allocate memory at {addr:p}: {err}",
-        err = IoError::last_os_error(),
+    let result = sys::sys_map(
+        addr,
+        size,
+        Protection::RW,
+        libc::MAP_ANON | libc::MAP_PRIVATE | libc::MAP_FIXED,
+        -1,
+        0,
     );
+    if let Err(err) = result {
+        panic!("cannot allocate memory at {addr:p}: {err}");
+    }
 }
 
 pub fn init() {

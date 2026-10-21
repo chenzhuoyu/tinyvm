@@ -100,6 +100,20 @@ impl_get_int! {
     },
 }
 
+pub trait RandomRead {
+    fn read_at(&self, buf: Uintptr, size: usize, offs: usize) -> IoResult<usize>;
+}
+
+impl<T: AsRawFd> RandomRead for T {
+    #[inline]
+    fn read_at(&self, buf: Uintptr, size: usize, offs: usize) -> IoResult<usize> {
+        match unsafe { libc::pread(self.as_raw_fd(), buf.as_ptr(), size, offs as i64) } {
+            n if n < 0 => Err(IoError::last_os_error()),
+            n => Ok(n as usize),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct MemoryIo<'s>(pub &'s [u8]);
 
